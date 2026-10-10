@@ -72,7 +72,12 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
   exit 0
 fi
 
-up() { npx supabase storage cp "$1" "ss:///releases/$2" --linked --experimental --cache-control "$3" >/dev/null; echo "   uploaded $2"; }
+# Storage refuses to overwrite, so the two "always the newest" files are removed right before they are re-uploaded.
+up() {
+  npx supabase storage rm "ss:///releases/$2" --linked --experimental --yes >/dev/null 2>&1 || true
+  npx supabase storage cp "$1" "ss:///releases/$2" --linked --experimental --cache-control "$3" >/dev/null || { echo "UPLOAD FAILED: $2"; exit 1; }
+  echo "   uploaded $2"
+}
 
 echo "==> Uploading"
 npx supabase db query --linked "insert into storage.buckets (id, name, public) values ('releases','releases',true) on conflict (id) do update set public = true" >/dev/null
