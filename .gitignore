@@ -12,3 +12,6 @@ src-tauri/gen/
 # Editor
 .vscode/
 .idea/
+
+# Secrets
+.envsupabase/.temp/

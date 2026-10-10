@@ -1,7 +1,27 @@
-# Tauri + React + Typescript
+# Clickr
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+The AI copilot that sees your screen. A floating macOS app (Tauri 2 + React/TypeScript + Rust) backed
+by Supabase (auth, database, Edge Functions) and Stripe (billing). The website lives in a separate
+repo (`getclickr`).
 
-## Recommended IDE Setup
+## Develop
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+```bash
+npm install
+npm run tauri dev        # the `clickr://` sign-in link and "open at login" only work in a built app
+```
+
+## Ship it
+
+- **Publish an update / new download:** [RELEASING.md](RELEASING.md)
+- **Everything still to do before and after launch:** [LAUNCH.md](LAUNCH.md)
+
+## Layout
+
+| Path | What it is |
+|---|---|
+| `src/` | The React UI: chat panel (`App.tsx`), Settings, sign-in, bug report, agent pill/cursor windows |
+| `src-tauri/src/` | Rust: window management, screen capture, accessibility/agent control, auth, updates |
+| `supabase/functions/` | Edge Functions: `ask` (AI gateway), `agent`, `stripe-webhook`, `app-auth-*`, `submit-bug-report` |
+| `supabase/migrations/` | Database schema, applied in order |
+| `scripts/` | `bump-version.sh`, `release.sh`, `rollback.sh` |
