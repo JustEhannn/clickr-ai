@@ -1,15 +1,33 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Capability for the main and settings windows",
+  "windows": ["main", "settings", "auth", "cursor", "agentbar", "bugreport"],
   "permissions": [
     "core:default",
     "opener:default",
     "core:tray:default",
     "core:menu:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-size",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "updater:default",
+    "notification:default",
+    "core:window:allow-set-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-available-monitors",
+    "core:event:allow-emit",
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister"
+    "global-shortcut:allow-unregister",
+    "core:window:allow-set-ignore-cursor-events",
+    "deep-link:default",
+    "opener:allow-default-urls"
   ]
 }

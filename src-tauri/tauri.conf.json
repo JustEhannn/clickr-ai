@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "clickr",
+  "productName": "Clickr AI",
   "version": "0.1.0",
   "identifier": "net.getclickr.app",
   "build": {
@@ -9,24 +9,27 @@
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "clickr"
+        ]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEzOTFFRUJDMzFDQTA1MDYKUldRR0Jjb3h2TzZSRTBxNFNIRlUzYklYQ3dxZksrNDAxdWY3M1J1bkNRdENUb2Q5bC9lT3RBLysK",
+      "endpoints": [
+        "https://xoebvsthsmrnuusduzfg.supabase.co/storage/v1/object/public/releases/latest.json"
+      ]
+    }
+  },
   "app": {
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "title": "Clickr",
-        "width": 560,
-        "height": 400,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "resizable": false,
-        "center": true,
-        "visible": false
-      }
-    ],
+    "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'",
+      "devCsp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws://localhost:1420 http://localhost:1420 ipc: http://ipc.localhost; img-src 'self' data: blob: asset: http://asset.localhost"
     }
   },
   "bundle": {
@@ -38,6 +41,35 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "dmg": {
+        "background": "dmg/background.tiff",
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "windowPosition": {
+          "x": 200,
+          "y": 120
+        },
+        "appPosition": {
+          "x": 170,
+          "y": 175
+        },
+        "applicationFolderPosition": {
+          "x": 490,
+          "y": 175
+        }
+      },
+      "minimumSystemVersion": "14.0",
+      "entitlements": "Entitlements.plist"
+    },
+    "createUpdaterArtifacts": true,
+    "category": "Productivity",
+    "copyright": "\u00a9 2026 Clickr",
+    "publisher": "Clickr",
+    "shortDescription": "The AI copilot that sees your screen",
+    "longDescription": "Clickr is a floating AI copilot for your Mac. Ask about anything on your screen, search the web, analyze files, and (on Pro+) let Agent Mode do tasks for you."
   }
 }

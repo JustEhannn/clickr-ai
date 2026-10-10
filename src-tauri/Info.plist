@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Clickr lives in the menu bar: no Dock icon, not even a flash of one at launch. -->
+  <key>LSUIElement</key>
+  <true/>
+
+  <!-- Shown by macOS when Agent Mode asks Finder to move something to the Trash. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Clickr uses Finder to move files to the Trash when you ask Agent Mode to tidy up.</string>
+
+  <key>NSHumanReadableCopyright</key>
+  <string>© 2026 Clickr</string>
+</dict>
+</plist>
