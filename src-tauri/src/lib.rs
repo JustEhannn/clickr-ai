@@ -586,8 +586,16 @@ fn read_image_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
+    // Relaunch through LaunchServices (`open`) a moment after this process has exited, so the new
+    // copy isn't turned away by the single-instance guard and macOS treats it as a fresh launch
+    // (which is what makes a newly granted Screen Recording permission take effect).
     if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe).spawn();
+        let bundle = exe.ancestors().find(|p| p.extension().map_or(false, |e| e == "app"));
+        let target = bundle.unwrap_or(exe.as_path()).to_string_lossy().replace('\'', "'\\''");
+        let _ = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!("sleep 1; /usr/bin/open -n '{}'", target))
+            .spawn();
     }
     app.exit(0);
 }

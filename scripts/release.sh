@@ -36,19 +36,17 @@ echo "   architectures in the app: $(lipo -archs "$APP/Contents/MacOS/"* 2>/dev/
 STAGE="$(mktemp -d)"
 TARBALL="$STAGE/Clickr-$VERSION.app.tar.gz"
 
+# Tauri signs the app itself BEFORE building the DMG and the update bundle (ad-hoc by default, per
+# tauri.conf.json; with your Developer ID + notarization when APPLE_SIGNING_IDENTITY is set), so the
+# DMG, the app and the update all contain the identical, properly sealed app. Never re-sign afterwards.
 if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
-  # Real release: Tauri already signed the app with your Developer ID and had Apple notarize it
-  # (it uses APPLE_SIGNING_IDENTITY + APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID). Use its update bundle as is.
   echo "==> Signed with Developer ID: $APPLE_SIGNING_IDENTITY"
-  cp "$OUT/macos/Clickr AI.app.tar.gz" "$TARBALL"
-  cp "$OUT/macos/Clickr AI.app.tar.gz.sig" "$TARBALL.sig"
 else
-  # No Developer ID yet: ad-hoc sign (keeping the Finder permission), then package and sign the update bundle.
-  echo "==> No APPLE_SIGNING_IDENTITY set: ad-hoc signing (macOS will warn about an unidentified developer)"
-  codesign --force --deep --sign - --entitlements src-tauri/Entitlements.plist "$APP"
-  tar -czf "$TARBALL" -C "$OUT/macos" "Clickr AI.app"
-  env -u TAURI_SIGNING_PRIVATE_KEY npx tauri signer sign --private-key-path "$KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$TARBALL" >/dev/null
+  echo "==> No APPLE_SIGNING_IDENTITY set: ad-hoc signed (macOS will warn about an unidentified developer)"
 fi
+codesign --verify --deep --strict "$APP" || { echo "App signature is not valid"; exit 1; }
+cp "$OUT/macos/Clickr AI.app.tar.gz" "$TARBALL"
+cp "$OUT/macos/Clickr AI.app.tar.gz.sig" "$TARBALL.sig"
 SIGNATURE="$(cat "$TARBALL.sig")"
 
 DMG_SRC="$(ls "$OUT"/dmg/*.dmg | head -1)"
