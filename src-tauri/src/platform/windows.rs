@@ -452,6 +452,23 @@ pub fn show_no_activate(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Shows the agent status bar without stealing focus from the app being controlled. tao resets
+/// the window's extended styles when it shows a window, so the no-activate / tool-window styles
+/// are applied again right afterwards, and focus goes straight back to the app underneath.
+pub fn show_bar(window: &tauri::WebviewWindow) {
+    let _ = window.show();
+    prepare_overlay(window, true, true);
+    let fg = unsafe { GetForegroundWindow() };
+    if !fg.0.is_null() && window_pid(fg) == own_pid() {
+        focus_external_window();
+    }
+    let w = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        prepare_overlay(&w, true, true);
+    });
+}
+
 /// Hides a window that was shown with show_no_activate (tao's own hide() ignores it, because
 /// tao never saw the window become visible).
 pub fn hide_now(window: &tauri::WebviewWindow) {
