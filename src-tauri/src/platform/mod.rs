@@ -9,3 +9,7 @@ pub use macos::*;
 mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::*;
+// UI Automation plays the role macOS's AX module plays (same function names).
+#[cfg(target_os = "windows")]
+#[path = "uia.rs"]
+pub mod ax;
