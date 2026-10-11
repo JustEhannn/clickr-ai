@@ -3564,3 +3564,64 @@ html.is-windows .cue-toolbar {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+
+/* Windows type: Inter (bundled, see platform.ts) with Segoe UI as the safety net. */
+html.is-windows,
+html.is-windows body,
+html.is-windows button,
+html.is-windows input,
+html.is-windows textarea,
+html.is-windows select {
+  font-family: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: auto;
+  text-rendering: optimizeLegibility;
+}
+
+/* Windows scrollbars: thin, dark, rounded, only as wide as the content needs.
+   (The default light gray 17px bars look out of place on the dark panels.) */
+html.is-windows * {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+html.is-windows ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+html.is-windows ::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+html.is-windows ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  min-height: 32px;
+}
+html.is-windows ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.30);
+  background-clip: content-box;
+}
+html.is-windows ::-webkit-scrollbar-thumb:active {
+  background: rgba(60, 131, 245, 0.7);
+  background-clip: content-box;
+}
+html.is-windows ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Windows: panels that were 92-98% opaque over a blurred desktop on macOS become fully solid. */
+html.is-windows .permissions-modal-card,
+html.is-windows .history-popover,
+html.is-windows .settings-popover,
+html.is-windows .onboarding-card,
+html.is-windows .settings-window-panel,
+html.is-windows .pricing-modal,
+html.is-windows .model-menu,
+html.is-windows .agent-bar,
+html.is-windows .agent-beta-card {
+  background: #05060a;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

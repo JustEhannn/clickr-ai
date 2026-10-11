@@ -27,6 +27,8 @@ const HEADINGS: Record<BugSource, string> = {
   crash: "Something broke",
 };
 
+const uiZoom: Promise<number> = invoke<number>("get_ui_zoom").catch(() => 1);
+
 /** The window people use to report a bug. It never closes on its own when you click away. */
 export default function BugReportApp() {
   const appWindow = useMemo(() => getCurrentWindow(), []);
@@ -48,7 +50,10 @@ export default function BugReportApp() {
       if (!header || !inner) return;
       // header + content + the scroll area's padding (27) + the window's outer padding (24) + borders
       const total = Math.ceil(header.offsetHeight + inner.offsetHeight + 27 + 24 + 2);
-      void appWindow.setSize(new LogicalSize(380, Math.min(Math.max(total, 260), 720))).catch(() => {});
+      // The window is sized in real pixels; on Windows the page is zoomed (see get_ui_zoom).
+      void uiZoom.then((z) =>
+        appWindow.setSize(new LogicalSize(Math.round(380 * z), Math.round(Math.min(Math.max(total, 260), 720) * z))),
+      ).catch(() => {});
     });
     return () => cancelAnimationFrame(id);
   }, [appWindow, stage, prefill, error]);

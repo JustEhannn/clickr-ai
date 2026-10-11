@@ -14,3 +14,9 @@ export const DEVICE_NAME = IS_WINDOWS ? "PC" : "Mac";
 if (IS_WINDOWS && typeof document !== "undefined") {
   document.documentElement.classList.add("is-windows");
 }
+
+// Windows has no Inter / SF Pro, so the UI would fall back to Arial at 9-12px (designed for
+// Retina Macs). Bundle Inter for Windows only; macOS never downloads it.
+if (IS_WINDOWS) {
+  void import("@fontsource-variable/inter/index.css");
+}

@@ -28,6 +28,33 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 
+/// UI scale for Windows (text designed for 2x Retina screens is small on 100% displays). 1.0 on
+/// macOS and on already-large Windows displays. Applied as WebView2 page zoom, with the window
+/// sizes scaled to match, so the layout stays exactly as designed.
+pub fn ui_zoom() -> f64 {
+    #[cfg(windows)]
+    {
+        platform::ui_zoom()
+    }
+    #[cfg(not(windows))]
+    {
+        1.0
+    }
+}
+
+#[tauri::command]
+fn get_ui_zoom() -> f64 {
+    ui_zoom()
+}
+
+#[cfg(windows)]
+fn apply_ui_zoom(window: &tauri::WebviewWindow) {
+    let z = ui_zoom();
+    if (z - 1.0).abs() > f64::EPSILON {
+        let _ = window.set_zoom(z);
+    }
+}
+
 static DRAG_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 static DRAG_ACTIVE_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -349,7 +376,8 @@ fn agent_bar_show_impl(app: tauri::AppHandle) -> Result<(), String> {
                     return;
                 }
                 let (ox, oy, w, _) = platform::main_display_bounds();
-                let (bar_w, bar_h) = (560.0, 52.0);
+                let z = ui_zoom();
+                let (bar_w, bar_h) = (560.0 * z, 52.0 * z);
                 let built = WebviewWindowBuilder::new(
                     &handle,
                     "agentbar",
@@ -369,6 +397,7 @@ fn agent_bar_show_impl(app: tauri::AppHandle) -> Result<(), String> {
                 .build();
                 match built {
                     Ok(bar) => {
+                        apply_ui_zoom(&bar);
                         platform::prepare_overlay(&bar, true, true);
                         platform::show_no_activate(&bar);
                     }
@@ -497,8 +526,8 @@ fn open_settings_impl(app: tauri::AppHandle) -> Result<(), String> {
             WebviewUrl::App("index.html?window=settings".into()),
         )
         .title("Clickr Settings")
-        .inner_size(340.0, 640.0)
-        .min_inner_size(340.0, 520.0)
+        .inner_size(340.0 * ui_zoom(), 640.0 * ui_zoom())
+        .min_inner_size(340.0 * ui_zoom(), 520.0 * ui_zoom())
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -517,7 +546,10 @@ fn open_settings_impl(app: tauri::AppHandle) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         platform::disable_window_shadow(&window);
         #[cfg(windows)]
-        platform::prepare_overlay(&window, false, false);
+        {
+            apply_ui_zoom(&window);
+            platform::prepare_overlay(&window, false, false);
+        }
 
         let opened_at = std::time::Instant::now();
         let window_for_event = window.clone();
@@ -608,8 +640,8 @@ fn open_bug_report_impl(app: tauri::AppHandle) -> Result<(), String> {
             WebviewUrl::App("index.html?window=bug".into()),
         )
         .title("Clickr Bug Report")
-        .inner_size(380.0, 470.0)
-        .min_inner_size(380.0, 260.0)
+        .inner_size(380.0 * ui_zoom(), 470.0 * ui_zoom())
+        .min_inner_size(380.0 * ui_zoom(), 260.0 * ui_zoom())
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -626,7 +658,10 @@ fn open_bug_report_impl(app: tauri::AppHandle) -> Result<(), String> {
                 #[cfg(target_os = "macos")]
                 platform::disable_window_shadow(&window);
         #[cfg(windows)]
-        platform::prepare_overlay(&window, false, false);
+        {
+            apply_ui_zoom(&window);
+            platform::prepare_overlay(&window, false, false);
+        }
                 let _ = window.set_focus();
             }
             Err(e) => eprintln!("Failed to build bug report window: {e}"),
@@ -658,8 +693,8 @@ pub fn open_signin_window(app: tauri::AppHandle) {
             WebviewUrl::App("index.html?window=auth".into()),
         )
         .title("Sign in to Clickr")
-        .inner_size(360.0, 410.0)
-        .min_inner_size(360.0, 410.0)
+        .inner_size(360.0 * ui_zoom(), 410.0 * ui_zoom())
+        .min_inner_size(360.0 * ui_zoom(), 410.0 * ui_zoom())
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -682,7 +717,10 @@ pub fn open_signin_window(app: tauri::AppHandle) {
                         #[cfg(target_os = "macos")]
                         platform::disable_window_shadow(&window);
         #[cfg(windows)]
-        platform::prepare_overlay(&window, false, false);
+        {
+            apply_ui_zoom(&window);
+            platform::prepare_overlay(&window, false, false);
+        }
                     },
                 }
 
@@ -1579,7 +1617,7 @@ pub fn run() {
                 // always-on-top window that stays out of the taskbar and Alt-Tab.
                 let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .title("Clickr")
-                    .inner_size(680.0, 760.0)
+                    .inner_size(680.0 * ui_zoom(), 760.0 * ui_zoom())
                     .resizable(false)
                     .decorations(false)
                     .transparent(true)
@@ -1589,6 +1627,7 @@ pub fn run() {
                     .center()
                     .visible(false)
                     .build()?;
+                apply_ui_zoom(&window);
                 platform::prepare_overlay(&window, true, false);
                 platform::start_click_through_poller(app.handle().clone());
             }
@@ -1703,6 +1742,7 @@ pub fn run() {
                 set_global_shortcuts,
                 open_settings,
                 quit_app,
+                get_ui_zoom,
                 read_image_file,
                 update_clickable_rect,
                 check_screen_recording_permission,
