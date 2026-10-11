@@ -293,7 +293,7 @@ fn agent_restore_impl(app: tauri::AppHandle, show: Option<bool>) {
     {
         #[cfg(windows)]
         if let Some(bar) = app.get_webview_window("agentbar") {
-            platform::hide_now(&bar);
+            let _ = bar.hide();
         }
         if show {
             show_main_window(&app);
@@ -372,7 +372,7 @@ fn agent_bar_show_impl(app: tauri::AppHandle) -> Result<(), String> {
                     return;
                 }
                 if let Some(bar) = handle.get_webview_window("agentbar") {
-                    platform::show_no_activate(&bar);
+                    platform::show_bar(&bar);
                     return;
                 }
                 let (ox, oy, w, _) = platform::main_display_bounds();
@@ -399,7 +399,7 @@ fn agent_bar_show_impl(app: tauri::AppHandle) -> Result<(), String> {
                     Ok(bar) => {
                         apply_ui_zoom(&bar);
                         platform::prepare_overlay(&bar, true, true);
-                        platform::show_no_activate(&bar);
+                        platform::show_bar(&bar);
                     }
                     Err(e) => eprintln!("Failed to build agent bar: {e}"),
                 }
@@ -438,7 +438,7 @@ fn agent_bar_hide_impl(app: tauri::AppHandle) {
     }
     #[cfg(windows)]
     if let Some(bar) = app.get_webview_window("agentbar") {
-        platform::hide_now(&bar);
+        let _ = bar.hide();
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     let _ = app;
