@@ -528,6 +528,8 @@ pub fn start_click_through_poller(app: tauri::AppHandle) {
                         if unsafe { GetCursorPos(&mut cursor) }.is_err() {
                             continue;
                         }
+                        // The page is zoomed (ui_zoom), so its CSS pixels are bigger on screen.
+                        let scale = scale * ui_zoom();
                         let left = pos.x as f64 + rx * scale;
                         let top = pos.y as f64 + ry * scale;
                         let inside = (cursor.x as f64) >= left
@@ -559,6 +561,11 @@ pub(super) fn primary_scale() -> f64 {
         }
     }
     1.0
+}
+
+/// Page zoom for Clickr's own windows: bigger on 100%-scale displays, none above 125%.
+pub fn ui_zoom() -> f64 {
+    if primary_scale() < 1.25 { 1.12 } else { 1.0 }
 }
 
 fn primary_physical_size() -> (f64, f64) {
