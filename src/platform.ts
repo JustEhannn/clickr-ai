@@ -8,3 +8,9 @@ export const MOD_KEY = IS_WINDOWS ? "Ctrl" : "⌘";
 export const ENTER_KEY = IS_WINDOWS ? "Enter" : "↵";
 export const OS_NAME = IS_WINDOWS ? "Windows" : "macOS";
 export const DEVICE_NAME = IS_WINDOWS ? "PC" : "Mac";
+
+// WebView2 can't blur the desktop behind a transparent window the way macOS does, so on Windows
+// the translucent panels get solid backgrounds (see "Windows" at the end of main.css).
+if (IS_WINDOWS && typeof document !== "undefined") {
+  document.documentElement.classList.add("is-windows");
+}

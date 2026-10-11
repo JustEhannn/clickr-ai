@@ -12,7 +12,7 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT}
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-    MonitorFromPoint, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+    EnumDisplayMonitors, HDC, HMONITOR, MonitorFromPoint, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
     DIB_RGB_COLORS, HGDIOBJ, MONITOR_DEFAULTTOPRIMARY, SRCCOPY,
 };
 use windows::Win32::Security::{
@@ -197,7 +197,16 @@ pub(super) fn target_window() -> Option<HWND> {
 
 /// Hides every Clickr window from screen capture (Windows 10 2004+), so the model never sees
 /// the pill, the cursor overlay or the status bar. Cheap when already applied.
+/// Debug builds only: CLICKR_NO_EXCLUDE=1 keeps Clickr visible to screenshots so its own
+/// rendering can be inspected.
+fn exclusion_disabled() -> bool {
+    cfg!(debug_assertions) && std::env::var_os("CLICKR_NO_EXCLUDE").is_some()
+}
+
 fn exclude_own_windows_from_capture() {
+    if exclusion_disabled() {
+        return;
+    }
     let me = own_pid();
     for hwnd in all_top_level_windows() {
         if window_pid(hwnd) != me {
@@ -213,28 +222,8 @@ fn exclude_own_windows_from_capture() {
     }
 }
 
-pub fn capture_screen_excluding_windows(
-    _titles_to_exclude: &[&str],
-    all_displays: bool,
-) -> Result<(u32, u32, Vec<u8>), String> {
-    exclude_own_windows_from_capture();
-
-    let (x, y, w, h) = unsafe {
-        if all_displays {
-            (
-                GetSystemMetrics(SM_XVIRTUALSCREEN),
-                GetSystemMetrics(SM_YVIRTUALSCREEN),
-                GetSystemMetrics(SM_CXVIRTUALSCREEN),
-                GetSystemMetrics(SM_CYVIRTUALSCREEN),
-            )
-        } else {
-            (0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN))
-        }
-    };
-    if w <= 0 || h <= 0 {
-        return Err("No display found".to_string());
-    }
-
+/// One BitBlt of a screen rectangle (physical pixels) into RGBA.
+fn blit_rect(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
     unsafe {
         let screen = GetDC(None);
         if screen.is_invalid() {
@@ -259,15 +248,7 @@ pub fn capture_screen_excluding_windows(
             ..Default::default()
         };
         let mut pixels = vec![0u8; (w as usize) * (h as usize) * 4];
-        let lines = GetDIBits(
-            mem,
-            bitmap,
-            0,
-            h as u32,
-            Some(pixels.as_mut_ptr() as *mut _),
-            &mut info,
-            DIB_RGB_COLORS,
-        );
+        let lines = GetDIBits(mem, bitmap, 0, h as u32, Some(pixels.as_mut_ptr() as *mut _), &mut info, DIB_RGB_COLORS);
 
         SelectObject(mem, old);
         let _ = DeleteObject(HGDIOBJ(bitmap.0));
@@ -277,14 +258,105 @@ pub fn capture_screen_excluding_windows(
         if copied.is_err() || lines == 0 {
             return Err("Couldn't capture the screen.".to_string());
         }
-
         // BGRA -> RGBA, opaque.
         for px in pixels.chunks_exact_mut(4) {
             px.swap(0, 2);
             px[3] = 255;
         }
-        Ok((w as u32, h as u32, pixels))
+        Ok(pixels)
     }
+}
+
+/// Runs the capture on its own thread so a display that never answers (some virtual / remote
+/// monitors block BitBlt forever) can be skipped instead of freezing Clickr.
+fn blit_rect_with_timeout(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(blit_rect(x, y, w, h));
+    });
+    rx.recv_timeout(Duration::from_secs(4))
+        .map_err(|_| "Timed out capturing a display.".to_string())?
+}
+
+unsafe extern "system" fn collect_monitors(
+    _monitor: HMONITOR,
+    _dc: HDC,
+    rect: *mut RECT,
+    lparam: LPARAM,
+) -> BOOL {
+    let list = &mut *(lparam.0 as *mut Vec<(i32, i32, i32, i32)>);
+    let r = *rect;
+    list.push((r.left, r.top, r.right - r.left, r.bottom - r.top));
+    BOOL(1)
+}
+
+/// Every display as (x, y, width, height) in physical pixels, left to right.
+fn monitor_rects() -> Vec<(i32, i32, i32, i32)> {
+    let mut list: Vec<(i32, i32, i32, i32)> = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(None, None, Some(collect_monitors), LPARAM(&mut list as *mut _ as isize));
+    }
+    list.retain(|(_, _, w, h)| *w > 0 && *h > 0);
+    list.sort_by_key(|(x, _, _, _)| *x);
+    list
+}
+
+pub fn capture_screen_excluding_windows(
+    _titles_to_exclude: &[&str],
+    all_displays: bool,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    exclude_own_windows_from_capture();
+
+    let primary = (0, 0, unsafe { GetSystemMetrics(SM_CXSCREEN) }, unsafe { GetSystemMetrics(SM_CYSCREEN) });
+    if primary.2 <= 0 || primary.3 <= 0 {
+        return Err("No display found".to_string());
+    }
+
+    if !all_displays {
+        let pixels = blit_rect_with_timeout(primary.0, primary.1, primary.2, primary.3)?;
+        return Ok((primary.2 as u32, primary.3 as u32, pixels));
+    }
+
+    // Each display on its own, stitched left to right (like the macOS build). A display that
+    // fails or times out is skipped as long as at least one works.
+    // All displays are grabbed at the same time under one shared deadline.
+    let jobs: Vec<_> = monitor_rects()
+        .into_iter()
+        .map(|(x, y, w, h)| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(blit_rect(x, y, w, h));
+            });
+            (w, h, rx)
+        })
+        .collect();
+    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+    let mut images: Vec<image::RgbaImage> = Vec::new();
+    for (w, h, rx) in jobs {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if let Ok(Ok(pixels)) = rx.recv_timeout(left) {
+            if let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, pixels) {
+                images.push(img);
+            }
+        }
+    }
+    if images.is_empty() {
+        let pixels = blit_rect_with_timeout(primary.0, primary.1, primary.2, primary.3)?;
+        return Ok((primary.2 as u32, primary.3 as u32, pixels));
+    }
+    if images.len() == 1 {
+        let img = images.remove(0);
+        return Ok((img.width(), img.height(), img.into_raw()));
+    }
+    let total_width: u32 = images.iter().map(|i| i.width()).sum();
+    let max_height: u32 = images.iter().map(|i| i.height()).max().unwrap_or(0);
+    let mut canvas = image::RgbaImage::new(total_width, max_height);
+    let mut x_offset = 0i64;
+    for img in &images {
+        image::imageops::overlay(&mut canvas, img, x_offset, 0);
+        x_offset += img.width() as i64;
+    }
+    Ok((canvas.width(), canvas.height(), canvas.into_raw()))
 }
 
 /* =========================================================
@@ -346,7 +418,28 @@ pub fn prepare_overlay(window: &tauri::WebviewWindow, tool: bool, no_activate: b
             ex |= WS_EX_NOACTIVATE.0;
         }
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
-        let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        if !exclusion_disabled() {
+            let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        }
+    }
+}
+
+/// tao rewrites a window's extended styles whenever one of its flags changes (the click-through
+/// poller toggles one constantly), which drops WS_EX_TOOLWINDOW. Re-apply it so Clickr stays out
+/// of Alt-Tab.
+fn ensure_tool_window(window: &tauri::WebviewWindow) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd = HWND(hwnd.0);
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if ex & WS_EX_TOOLWINDOW.0 == 0 {
+            let new = (ex | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new as isize);
+            let _ = SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
     }
 }
 
@@ -409,6 +502,7 @@ pub fn start_click_through_poller(app: tauri::AppHandle) {
                 last = None;
                 continue;
             }
+            ensure_tool_window(&window);
             let ignore = if crate::agent_hidden() {
                 true
             } else if crate::is_drag_active() {
