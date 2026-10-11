@@ -563,9 +563,20 @@ pub(super) fn primary_scale() -> f64 {
     1.0
 }
 
-/// Page zoom for Clickr's own windows: bigger on 100%-scale displays, none above 125%.
+/// Page zoom for Clickr's own windows. Defaults to 1.0: at 1.0 the pill takes up the same share
+/// of a 1080p screen as it does on a 15" MacBook Air, which is the intended look. To nudge it
+/// without rebuilding, put a number (0.8 to 1.5, e.g. 1.05) in the file
+/// `ui-zoom.txt` inside the `net.getclickr.app` folder under %APPDATA%, then restart Clickr.
 pub fn ui_zoom() -> f64 {
-    if primary_scale() < 1.25 { 1.12 } else { 1.0 }
+    static ZOOM: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *ZOOM.get_or_init(|| {
+        std::env::var_os("APPDATA")
+            .map(|d| std::path::PathBuf::from(d).join("net.getclickr.app").join("ui-zoom.txt"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| s.trim().parse::<f64>().ok())
+            .map(|z| z.clamp(0.8, 1.5))
+            .unwrap_or(1.0)
+    })
 }
 
 fn primary_physical_size() -> (f64, f64) {
