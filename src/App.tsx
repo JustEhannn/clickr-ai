@@ -20,6 +20,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import PricingModal from "./PricingModal";
 import { agentBetaKey, onboardingKey } from "./storage";
 import { reportProblem } from "./bugReport";
+import { DEVICE_NAME, ENTER_KEY, MOD_KEY } from "./platform";
 import { canUse, canAttachFile, FILE_ACCEPT_ALL, type Feature, type Tier } from "./tiers";
 import {
   describeCall,
@@ -2734,8 +2735,8 @@ export default function App() {
                   {!input && (
                     <div className="composer-placeholder">
                       Ask about your screen or conversation, or{" "}
-                      <span className="keycap">⌘</span>
-                      <span className="keycap">↵</span> for Assist
+                      <span className="keycap">{MOD_KEY}</span>
+                      <span className="keycap">{ENTER_KEY}</span> for Assist
                     </div>
                   )}
 
@@ -3146,7 +3147,7 @@ export default function App() {
             </div>
             <p className="agent-beta-text">
               Agent Mode is currently in beta and is still being worked on. It can click, type, open apps and
-              manage files on your Mac, so it may sometimes get things wrong.
+              manage files on your {DEVICE_NAME}, so it may sometimes get things wrong.
             </p>
             <ul className="agent-beta-list">
               <li>It asks before it acts, unless you choose “Allow all”.</li>

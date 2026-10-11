@@ -6,6 +6,8 @@
 // NOTE: this is UX gating only. Anything that costs money or touches user
 // data must ALSO be enforced server-side (Edge Functions / RLS).
 
+import { DEVICE_NAME } from "./platform";
+
 export type Tier = "free" | "pro" | "pro_plus";
 
 export const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, pro_plus: 2 };
@@ -163,7 +165,7 @@ export const PLANS: Plan[] = [
     inherits: "Everything in Pro",
     headline: {
       title: "Agent Mode",
-      note: "Clickr works your Mac for you — and you watch every move.",
+      note: `Clickr works your ${DEVICE_NAME} for you — and you watch every move.`,
     },
     features: [
       "Clicks, types & navigates your apps and websites",

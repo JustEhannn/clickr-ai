@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import type { BugSource } from "./bugReport";
+import { OS_NAME } from "./platform";
 
 type Prefill = { source: BugSource; error: string; at: string } | null;
 type Stage = "form" | "sending" | "sent";
@@ -158,7 +159,7 @@ export default function BugReportApp() {
             <label className="bug-check">
               <input type="checkbox" checked={includeInfo} onChange={(e) => setIncludeInfo(e.target.checked)} />
               <span>
-                Include app version, macOS version and my plan
+                Include app version, {OS_NAME} version and my plan
                 <small>No screenshots or chat contents are sent.</small>
               </span>
             </label>
