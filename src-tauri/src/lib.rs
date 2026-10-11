@@ -223,6 +223,17 @@ fn show_panel(app: tauri::AppHandle) {
 /// clickable, status pill and cursor overlay gone. Safe to call at any time.
 #[tauri::command]
 fn agent_restore(app: tauri::AppHandle, show: Option<bool>) {
+    // Windows: closing/destroying windows from a sync command (UI thread, inside a WebView2
+    // callback) deadlocks the app, so do the work on a worker thread.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || agent_restore_impl(app, show));
+    }
+    #[cfg(not(windows))]
+    agent_restore_impl(app, show);
+}
+
+fn agent_restore_impl(app: tauri::AppHandle, show: Option<bool>) {
     use tauri::Manager;
     let show = show.unwrap_or(true);
 
@@ -255,7 +266,7 @@ fn agent_restore(app: tauri::AppHandle, show: Option<bool>) {
     {
         #[cfg(windows)]
         if let Some(bar) = app.get_webview_window("agentbar") {
-            let _ = bar.hide();
+            platform::hide_now(&bar);
         }
         if show {
             show_main_window(&app);
@@ -265,6 +276,22 @@ fn agent_restore(app: tauri::AppHandle, show: Option<bool>) {
 
 #[tauri::command]
 fn agent_bar_show(app: tauri::AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = agent_bar_show_impl(app) {
+                eprintln!("{}: {e}", "agent_bar_show");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    agent_bar_show_impl(app)
+}
+
+fn agent_bar_show_impl(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         BAR_WANTED.store(true, Ordering::SeqCst);
@@ -359,6 +386,17 @@ fn agent_bar_show(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn agent_bar_hide(app: tauri::AppHandle) {
+    // Windows: closing/destroying windows from a sync command (UI thread, inside a WebView2
+    // callback) deadlocks the app, so do the work on a worker thread.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || agent_bar_hide_impl(app));
+    }
+    #[cfg(not(windows))]
+    agent_bar_hide_impl(app);
+}
+
+fn agent_bar_hide_impl(app: tauri::AppHandle) {
     BAR_WANTED.store(false, Ordering::SeqCst);
     #[cfg(target_os = "macos")]
     {
@@ -371,7 +409,7 @@ fn agent_bar_hide(app: tauri::AppHandle) {
     }
     #[cfg(windows)]
     if let Some(bar) = app.get_webview_window("agentbar") {
-        let _ = bar.hide();
+        platform::hide_now(&bar);
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     let _ = app;
@@ -428,6 +466,22 @@ fn toggle_window(app: &tauri::AppHandle) {
 
 #[tauri::command]
 fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = open_settings_impl(app) {
+                eprintln!("{}: {e}", "open_settings");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    open_settings_impl(app)
+}
+
+fn open_settings_impl(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.show();
         let _ = window.set_focus();
@@ -523,6 +577,22 @@ fn bug_diagnostics(app: tauri::AppHandle) -> serde_json::Value {
 /// loses focus, so people can switch away to check something and come back to finish.
 #[tauri::command]
 fn open_bug_report(app: tauri::AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = open_bug_report_impl(app) {
+                eprintln!("{}: {e}", "open_bug_report");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    open_bug_report_impl(app)
+}
+
+fn open_bug_report_impl(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("bugreport") {
         let _ = window.show();
         let _ = window.set_focus();
