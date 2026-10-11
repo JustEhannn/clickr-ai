@@ -1,4 +1,11 @@
 {
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://xoebvsthsmrnuusduzfg.supabase.co/storage/v1/object/public/releases/latest-windows.json"
+      ]
+    }
+  },
   "bundle": {
     "targets": ["nsis"],
     "longDescription": "Clickr is a floating AI copilot for your PC. Ask about anything on your screen, search the web, analyze files, and (on Pro+) let Agent Mode do tasks for you.",

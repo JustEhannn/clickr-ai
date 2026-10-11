@@ -1436,9 +1436,9 @@ pub fn run() {
 
             // Desktop-only: static registration already happened via tauri.conf.json's
             // plugins.deep-link.desktop.schemes, but Linux needs the runtime call too.
-            #[cfg(any(target_os = "linux", all(windows, debug_assertions)))]
+            #[cfg(any(target_os = "linux", windows))]
             {
-                // Windows dev builds (`tauri dev`) run an unpackaged exe the installer never registered.
+                // Windows: also covers a bare exe (tauri dev, target/release) the installer never registered; re-pointing it at the running exe on each launch is harmless.
                 let _ = app.deep_link().register("clickr");
             }
 
