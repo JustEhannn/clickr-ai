@@ -477,6 +477,22 @@ static CURSOR_WANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 /// Shows the transparent, click-through overlay that draws the agent's cursor.
 #[tauri::command]
 pub fn agent_cursor_show(app: AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = agent_cursor_show_impl(app) {
+                eprintln!("{}: {e}", "agent_cursor_show");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    agent_cursor_show_impl(app)
+}
+
+pub fn agent_cursor_show_impl(app: AppHandle) -> Result<(), String> {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
     CURSOR_WANTED.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -518,6 +534,17 @@ pub fn agent_cursor_show(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn agent_cursor_hide(app: AppHandle) {
+    // Windows: closing/destroying windows from a sync command (UI thread, inside a WebView2
+    // callback) deadlocks the app, so do the work on a worker thread.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || agent_cursor_hide_impl(app));
+    }
+    #[cfg(not(windows))]
+    agent_cursor_hide_impl(app);
+}
+
+pub fn agent_cursor_hide_impl(app: AppHandle) {
     use tauri::Manager;
     CURSOR_WANTED.store(false, std::sync::atomic::Ordering::SeqCst);
     if let Some(window) = app.get_webview_window("cursor") {

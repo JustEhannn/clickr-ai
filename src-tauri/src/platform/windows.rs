@@ -37,7 +37,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowThreadProcessId, IsWindowVisible, SetCursorPos, SetForegroundWindow,
     SetWindowDisplayAffinity, SetWindowLongPtrW, ShowWindow, WindowFromPoint, GA_ROOT,
     GWL_EXSTYLE, SM_CXSCREEN, SM_CXVIRTUALSCREEN, SM_CYSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_SHOWNOACTIVATE, WDA_EXCLUDEFROMCAPTURE,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, WDA_EXCLUDEFROMCAPTURE,
     WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
@@ -448,6 +448,16 @@ pub fn show_no_activate(window: &tauri::WebviewWindow) {
     if let Ok(hwnd) = window.hwnd() {
         unsafe {
             let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNOACTIVATE);
+        }
+    }
+}
+
+/// Hides a window that was shown with show_no_activate (tao's own hide() ignores it, because
+/// tao never saw the window become visible).
+pub fn hide_now(window: &tauri::WebviewWindow) {
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let _ = ShowWindow(HWND(hwnd.0), SW_HIDE);
         }
     }
 }
