@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "targets": ["nsis"],
+    "longDescription": "Clickr is a floating AI copilot for your PC. Ask about anything on your screen, search the web, analyze files, and (on Pro+) let Agent Mode do tasks for you.",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}
