@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds the shareable reference package into design-reference/Clickr-Design-Reference/
+# Builds the shareable reference package into design-reference/Clickr-AI-Design-Reference/
 set -euo pipefail
 cd "$(dirname "$0")/.."
 npx vite --config design-reference/vite.config.ts build
-OUT=design-reference/Clickr-Design-Reference
+OUT=design-reference/Clickr-AI-Design-Reference
 rm -rf "$OUT"; mkdir -p "$OUT"
 mv design-reference/site "$OUT/site"
 rm -f "$OUT/site/tauri.svg" "$OUT/site/vite.svg"
@@ -16,7 +16,7 @@ cat > "$OUT/Open on Mac.command" <<'SH'
 cd "$(dirname "$0")/site"
 PORT=4173
 ( sleep 1; open "http://localhost:$PORT/design-reference/index.html" ) &
-echo "Clickr design reference is running at http://localhost:$PORT  (close this window to stop it)"
+echo "Clickr AI design reference is running at http://localhost:$PORT  (close this window to stop it)"
 python3 -m http.server $PORT
 SH
 chmod +x "$OUT/Open on Mac.command"
@@ -24,14 +24,14 @@ cat > "$OUT/Open on Windows.bat" <<'BAT'
 @echo off
 cd /d "%~dp0site"
 start "" http://localhost:4173/design-reference/index.html
-echo Clickr design reference is running at http://localhost:4173  (close this window to stop it)
+echo Clickr AI design reference is running at http://localhost:4173  (close this window to stop it)
 where py >nul 2>nul && (py -m http.server 4173 & goto :eof)
 python -m http.server 4173
 BAT
 cat > "$OUT/READ ME FIRST.txt" <<'TXT'
 CLICKR DESIGN REFERENCE
 =======================
-A live, clickable copy of every Clickr screen (fake data, nothing is saved or sent anywhere),
+A live, clickable copy of every Clickr AI screen (fake data, nothing is saved or sent anywhere),
 plus the logos, colors and fonts.
 
 TO OPEN IT

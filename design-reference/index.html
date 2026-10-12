@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Clickr · Design Reference</title>
+<title>Clickr AI · Design Reference</title>
 <style>
   :root { --accent:#3C83F5; --accent-hi:#4A8DF7; --accent-text:#9DC0FF; --accent-soft:#7EAEFF; --surface:#05060A; --live:#22C55E; }
   * { box-sizing: border-box; }
@@ -58,13 +58,13 @@
 </head>
 <body>
 <header class="top"><div class="in">
-  <img src="brand/app-icon-512.png" alt="" /><b>Clickr · Design Reference</b>
+  <img src="brand/app-icon-512.png" alt="" /><b>Clickr AI · Design Reference</b>
   <nav><a href="#brand">Brand</a><a href="#colors">Colors</a><a href="#type">Type</a><a href="#screens">Screens</a><a href="#plans">Plan states</a><a href="#agent">Agent Mode</a></nav>
 </div></header>
 
 <main>
-  <h1>Clickr design reference</h1>
-  <p class="lead">Clickr is a Mac app: a small floating AI "pill" you open with a keyboard shortcut. You ask a question, it can look at your screen to answer, and on the top plan it can click and type for you ("Agent Mode"). Everything below is the <b>real interface running with fake data</b>, so you can see exactly how it looks, hover over buttons, and type into it.</p>
+  <h1>Clickr AI design reference</h1>
+  <p class="lead">Clickr AI is a Mac app: a small floating AI "pill" you open with a keyboard shortcut. You ask a question, it can look at your screen to answer, and on the top plan it can click and type for you ("Agent Mode"). Everything below is the <b>real interface running with fake data</b>, so you can see exactly how it looks, hover over buttons, and type into it.</p>
   <div class="note">Everything on this page is a live copy of the app's real screens (not mockups or screenshots). Try typing in the windows, hover buttons, open Settings, switch the billing toggle. Nothing is saved or sent anywhere. The checkered / gradient areas are just a stand-in desktop; in the real app these windows float over whatever app you're using, and the glassy dark panels let that show through.</div>
 
   <h2 id="brand">Logos and app icon</h2>
@@ -106,13 +106,13 @@
   <div class="scene"><div class="cap"><h3>1. The pill (idle)<span class="tag">main window</span></h3><span>Opens with a keyboard shortcut (⌘ ⇧ Space). Type a question and press Return. "Assist" (⌘ Return) looks at your screen first.</span></div>
     <div class="desk"><iframe data-src="app.html" width="680" height="330" title="Pill"></iframe></div></div>
 
-  <div class="scene"><div class="cap"><h3>2. A screen-aware answer</h3><span>Clickr looked at the screen and streams its reply.</span></div>
+  <div class="scene"><div class="cap"><h3>2. A screen-aware answer</h3><span>Clickr AI looked at the screen and streams its reply.</span></div>
     <div class="desk"><iframe data-src="app.html?demo=chat" width="680" height="640" title="Chat"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>3. First-run guide</h3><span>A short tour shown once after sign-in.</span></div>
     <div class="desk"><iframe data-src="app.html?demo=tour" width="680" height="520" title="Tour"></iframe></div></div>
 
-  <div class="scene"><div class="cap"><h3>4. Permission needed</h3><span>Before it can see the screen, macOS asks the person to switch Clickr on in System Settings.</span></div>
+  <div class="scene"><div class="cap"><h3>4. Permission needed</h3><span>Before it can see the screen, macOS asks the person to switch Clickr AI on in System Settings.</span></div>
     <div class="desk"><iframe data-src="app.html?demo=perm" width="680" height="520" title="Permissions"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>5. Sign in</h3><span>360 × 410. Sign-in opens in the browser; this window waits.</span></div>
@@ -132,7 +132,7 @@
     <div class="desk"><iframe data-src="app.html?demo=limit&tier=free" width="680" height="520" title="Limit"></iframe></div></div>
 
   <h2 id="agent">Agent Mode (top plan only)</h2>
-  <p class="sub">While Agent Mode works, the chat hides itself. A small status pill and Clickr's own blue cursor remain so you can watch every move.</p>
+  <p class="sub">While Agent Mode works, the chat hides itself. A small status pill and Clickr AI's own blue cursor remain so you can watch every move.</p>
   <div class="grid g2">
     <div class="scene"><div class="cap"><h3>10. Status bar, working<span class="tag">560 × 52</span></h3></div>
       <div class="desk"><iframe data-src="app.html?window=agentbar&demo=agentbar" width="560" height="52" title="Agent bar"></iframe></div></div>
@@ -140,7 +140,7 @@
       <div class="desk"><iframe data-src="app.html?window=agentbar&demo=agentask" width="560" height="52" title="Agent approval"></iframe></div></div>
   </div>
 
-  <div class="scene"><div class="cap"><h3>12. Agent cursor<span class="tag">transparent overlay</span></h3><span>Clickr's own blue cursor glides to each target and ripples when it clicks, with a small label. The person's real mouse never moves. (Replays on reload.)</span></div>
+  <div class="scene"><div class="cap"><h3>12. Agent cursor<span class="tag">transparent overlay</span></h3><span>Clickr AI's own blue cursor glides to each target and ripples when it clicks, with a small label. The person's real mouse never moves. (Replays on reload.)</span></div>
     <div class="desk"><div style="position:relative;width:560px;height:300px;border-radius:12px;overflow:hidden;background:#f4f5f8;box-shadow:0 20px 60px rgba(0,0,0,.35)">
       <div style="height:34px;background:#e3e5ea;display:flex;align-items:center;gap:7px;padding:0 12px"><i style="width:11px;height:11px;border-radius:50%;background:#ff5f57"></i><i style="width:11px;height:11px;border-radius:50%;background:#febc2e"></i><i style="width:11px;height:11px;border-radius:50%;background:#28c840"></i><span style="margin-left:14px;color:#555;font-size:12px">Quarterly report — Numbers</span></div>
       <div style="padding:22px;color:#333;font-size:13px">Revenue by quarter<div style="margin-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px"><div style="background:#fff;border-radius:8px;padding:12px;height:70px">Q1</div><div style="background:#fff;border-radius:8px;padding:12px">Q2</div><div style="background:#fff;border-radius:8px;padding:12px">Q3</div><div style="background:#fff;border-radius:8px;padding:12px">Q4</div></div>
@@ -156,7 +156,7 @@
     <tr><td>Agent Mode, custom AI models, advanced reasoning models, early access, priority support</td><td>No</td><td>No</td><td>Yes</td></tr>
   </table></div>
 
-  <footer>Reference build · Clickr 0.1.1 · fake data only</footer>
+  <footer>Reference build · Clickr AI 0.1.1 · fake data only</footer>
 </main>
 <script>
   // Each scene is a whole running copy of the app. Only keep the ones near the screen alive,
