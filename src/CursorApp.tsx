@@ -27,6 +27,7 @@ export default function CursorApp() {
   const [visible, setVisible] = useState(false);
   const [label, setLabel] = useState("");
   const [ripple, setRipple] = useState(0);
+  const [pressed, setPressed] = useState(false);
   const labelTimer = useRef<number | undefined>(undefined);
   const elRef = useRef<HTMLDivElement>(null);
   const posRef = useRef(pos);
@@ -74,7 +75,11 @@ export default function CursorApp() {
         setPos({ x: payload.x, y: payload.y });
         place(payload.x, payload.y);
       }
-      if (payload.kind === "click") setRipple((n) => n + 1);
+      if (payload.kind === "click") {
+        setRipple((n) => n + 1);
+        setPressed(true);
+        window.setTimeout(() => setPressed(false), 170);
+      }
       if (payload.kind === "label") {
         setLabel(payload.label);
         window.clearTimeout(labelTimer.current);
@@ -92,10 +97,9 @@ export default function CursorApp() {
     <div className="agent-cursor-layer">
       <div
         ref={elRef}
-        className={`agent-cursor ${visible ? "visible" : ""} ${IS_WINDOWS ? "glide-js" : ""}`}
+        className={`agent-cursor ${visible ? "visible" : ""} ${IS_WINDOWS ? "glide-js" : ""} ${pressed ? "pressed" : ""}`}
         style={{ transform: `translate(${pos.x - HOT.x}px, ${pos.y - HOT.y}px)` }}
       >
-        {IS_WINDOWS && <span className="agent-cursor-halo" style={{ left: HOT.x, top: HOT.y }} />}
         {ripple > 0 && <span key={ripple} className="agent-cursor-ripple" style={{ left: HOT.x, top: HOT.y }} />}
         <img src={cursorImg} width={SIZE} alt="" draggable={false} />
         {label && <span className="agent-cursor-label">{label}</span>}

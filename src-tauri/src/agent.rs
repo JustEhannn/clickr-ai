@@ -134,22 +134,25 @@ pub async fn agent_exec(app: AppHandle, name: String, args: Value, background: O
         .map_err(|e| format!("Action failed: {e}"))?
 }
 
-/// Windows: glide the on-screen agent cursor (and the real pointer, along the same eased path)
-/// to a point in logical screen coordinates, returning once it has arrived.
+/// Where the on-screen agent cursor currently is (logical points). The real pointer is never moved.
 #[cfg(windows)]
-fn glide_to(app: &AppHandle, gx: f64, gy: f64, move_real_pointer: bool) {
+static LAST_OVERLAY: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+/// Windows: glide the on-screen agent cursor to a point in logical screen coordinates and wait until
+/// it has arrived. Only the overlay moves; the user's real mouse stays exactly where it was.
+#[cfg(windows)]
+fn glide_to(app: &AppHandle, gx: f64, gy: f64) {
     let (ox, oy, _, _) = crate::platform::main_display_bounds();
-    let from = crate::platform::pointer_pos_logical().unwrap_or((gx, gy));
+    let from = (*LAST_OVERLAY.lock().unwrap())
+        .or_else(crate::platform::pointer_pos_logical)
+        .unwrap_or((gx, gy));
     let ms = crate::platform::glide_ms_logical(from, (gx, gy));
     let _ = app.emit(
         "agent-cursor",
         json!({ "kind": "move", "x": gx - ox, "y": gy - oy, "label": "", "fromX": from.0 - ox, "fromY": from.1 - oy, "ms": ms }),
     );
-    if move_real_pointer {
-        crate::platform::glide_pointer_logical(gx, gy, ms);
-    } else {
-        std::thread::sleep(std::time::Duration::from_millis(ms));
-    }
+    std::thread::sleep(std::time::Duration::from_millis(ms));
+    *LAST_OVERLAY.lock().unwrap() = Some((gx, gy));
 }
 
 /// Tells the cursor overlay what the agent is doing so the user can watch it.
@@ -185,7 +188,7 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             }
             // Glide the on-screen agent cursor to the target first, then click.
             #[cfg(windows)]
-            glide_to(app, sx, sy, true);
+            glide_to(app, sx, sy);
             #[cfg(not(windows))]
             {
                 cursor_event(app, "move", sx - ox, sy - oy, "");
@@ -211,7 +214,7 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 #[cfg(windows)]
                 if let Some((gx, gy)) = platform::ax::element_center(id as usize) {
                     let (ox, oy, _, _) = platform::main_display_bounds();
-                    glide_to(app, gx, gy, false);
+                    glide_to(app, gx, gy);
                     cursor_event(app, "click", gx - ox, gy - oy, "");
                 }
                 platform::ax::press_element(id as usize)?;
@@ -317,7 +320,7 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 if let Some((gx, gy)) = platform::ax::element_center(id) {
                     let (ox, oy, _, _) = platform::main_display_bounds();
                     #[cfg(windows)]
-                    glide_to(app, gx, gy, false);
+                    glide_to(app, gx, gy);
                     #[cfg(not(windows))]
                     {
                         cursor_event(app, "move", gx - ox, gy - oy, "");
@@ -530,6 +533,10 @@ pub fn agent_cursor_show_impl(app: AppHandle) -> Result<(), String> {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
     CURSOR_WANTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    #[cfg(windows)]
+    {
+        *LAST_OVERLAY.lock().unwrap() = None;
+    }
     TYPED_SINCE_SUBMIT.store(false, std::sync::atomic::Ordering::SeqCst);
     if app.get_webview_window("cursor").is_some() {
         return Ok(());
