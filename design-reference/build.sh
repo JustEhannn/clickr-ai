@@ -29,8 +29,8 @@ where py >nul 2>nul && (py -m http.server 4173 & goto :eof)
 python -m http.server 4173
 BAT
 cat > "$OUT/READ ME FIRST.txt" <<'TXT'
-CLICKR DESIGN REFERENCE
-=======================
+CLICKR AI DESIGN REFERENCE
+==========================
 A live, clickable copy of every Clickr AI screen (fake data, nothing is saved or sent anywhere),
 plus the logos, colors and fonts.
 
