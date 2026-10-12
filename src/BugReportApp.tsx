@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import type { BugSource } from "./bugReport";
+import { OS_NAME } from "./platform";
 
 type Prefill = { source: BugSource; error: string; at: string } | null;
 type Stage = "form" | "sending" | "sent";
@@ -26,6 +27,8 @@ const HEADINGS: Record<BugSource, string> = {
   crash: "Something broke",
 };
 
+const uiZoom: Promise<number> = invoke<number>("get_ui_zoom").catch(() => 1);
+
 /** The window people use to report a bug. It never closes on its own when you click away. */
 export default function BugReportApp() {
   const appWindow = useMemo(() => getCurrentWindow(), []);
@@ -47,7 +50,10 @@ export default function BugReportApp() {
       if (!header || !inner) return;
       // header + content + the scroll area's padding (27) + the window's outer padding (24) + borders
       const total = Math.ceil(header.offsetHeight + inner.offsetHeight + 27 + 24 + 2);
-      void appWindow.setSize(new LogicalSize(380, Math.min(Math.max(total, 260), 720))).catch(() => {});
+      // The window is sized in real pixels; on Windows the page is zoomed (see get_ui_zoom).
+      void uiZoom.then((z) =>
+        appWindow.setSize(new LogicalSize(Math.round(380 * z), Math.round(Math.min(Math.max(total, 260), 720) * z))),
+      ).catch(() => {});
     });
     return () => cancelAnimationFrame(id);
   }, [appWindow, stage, prefill, error]);
@@ -158,7 +164,7 @@ export default function BugReportApp() {
             <label className="bug-check">
               <input type="checkbox" checked={includeInfo} onChange={(e) => setIncludeInfo(e.target.checked)} />
               <span>
-                Include app version, macOS version and my plan
+                Include app version, {OS_NAME} version and my plan
                 <small>No screenshots or chat contents are sent.</small>
               </span>
             </label>

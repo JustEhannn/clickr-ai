@@ -28,6 +28,33 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 
+/// UI scale for Windows (text designed for 2x Retina screens is small on 100% displays). 1.0 on
+/// macOS and on already-large Windows displays. Applied as WebView2 page zoom, with the window
+/// sizes scaled to match, so the layout stays exactly as designed.
+pub fn ui_zoom() -> f64 {
+    #[cfg(windows)]
+    {
+        platform::ui_zoom()
+    }
+    #[cfg(not(windows))]
+    {
+        1.0
+    }
+}
+
+#[tauri::command]
+fn get_ui_zoom() -> f64 {
+    ui_zoom()
+}
+
+#[cfg(windows)]
+fn apply_ui_zoom(window: &tauri::WebviewWindow) {
+    let z = ui_zoom();
+    if (z - 1.0).abs() > f64::EPSILON {
+        let _ = window.set_zoom(z);
+    }
+}
+
 static DRAG_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 static DRAG_ACTIVE_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -201,7 +228,14 @@ fn set_agent_hidden(app: tauri::AppHandle, hidden: bool) {
             state.0.store(hidden, Ordering::Relaxed);
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the click-through poller (platform::start_click_through_poller) makes the pill
+    // ignore the mouse while AGENT_HIDDEN is set; here we just hand keyboard focus back to the
+    // app underneath so the agent's keystrokes don't land in Clickr.
+    #[cfg(windows)]
+    if hidden {
+        platform::focus_external_window();
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     let _ = (app, hidden);
 }
 
@@ -216,6 +250,17 @@ fn show_panel(app: tauri::AppHandle) {
 /// clickable, status pill and cursor overlay gone. Safe to call at any time.
 #[tauri::command]
 fn agent_restore(app: tauri::AppHandle, show: Option<bool>) {
+    // Windows: closing/destroying windows from a sync command (UI thread, inside a WebView2
+    // callback) deadlocks the app, so do the work on a worker thread.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || agent_restore_impl(app, show));
+    }
+    #[cfg(not(windows))]
+    agent_restore_impl(app, show);
+}
+
+fn agent_restore_impl(app: tauri::AppHandle, show: Option<bool>) {
     use tauri::Manager;
     let show = show.unwrap_or(true);
 
@@ -245,13 +290,35 @@ fn agent_restore(app: tauri::AppHandle, show: Option<bool>) {
         });
     }
     #[cfg(not(target_os = "macos"))]
-    if show {
-        show_main_window(&app);
+    {
+        #[cfg(windows)]
+        if let Some(bar) = app.get_webview_window("agentbar") {
+            let _ = bar.hide();
+        }
+        if show {
+            show_main_window(&app);
+        }
     }
 }
 
 #[tauri::command]
 fn agent_bar_show(app: tauri::AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = agent_bar_show_impl(app) {
+                eprintln!("{}: {e}", "agent_bar_show");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    agent_bar_show_impl(app)
+}
+
+fn agent_bar_show_impl(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         BAR_WANTED.store(true, Ordering::SeqCst);
@@ -294,7 +361,52 @@ fn agent_bar_show(app: tauri::AppHandle) -> Result<(), String> {
             })
             .map_err(|e| e.to_string());
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        BAR_WANTED.store(true, Ordering::SeqCst);
+        let handle = app.clone();
+        return app
+            .run_on_main_thread(move || {
+                // The run may already have ended before this executes.
+                if !BAR_WANTED.load(Ordering::SeqCst) {
+                    return;
+                }
+                if let Some(bar) = handle.get_webview_window("agentbar") {
+                    platform::show_bar(&bar);
+                    return;
+                }
+                let (ox, oy, w, _) = platform::main_display_bounds();
+                let z = ui_zoom();
+                let (bar_w, bar_h) = (560.0 * z, 52.0 * z);
+                let built = WebviewWindowBuilder::new(
+                    &handle,
+                    "agentbar",
+                    WebviewUrl::App("index.html?window=agentbar".into()),
+                )
+                .title("Clickr Agent")
+                .inner_size(bar_w, bar_h)
+                .position(ox + (w - bar_w) / 2.0, oy + 44.0)
+                .resizable(false)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .focused(false)
+                .visible(false)
+                .build();
+                match built {
+                    Ok(bar) => {
+                        apply_ui_zoom(&bar);
+                        platform::prepare_overlay(&bar, true, true);
+                        platform::show_bar(&bar);
+                    }
+                    Err(e) => eprintln!("Failed to build agent bar: {e}"),
+                }
+            })
+            .map_err(|e| e.to_string());
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = app;
         Ok(())
@@ -303,6 +415,17 @@ fn agent_bar_show(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn agent_bar_hide(app: tauri::AppHandle) {
+    // Windows: closing/destroying windows from a sync command (UI thread, inside a WebView2
+    // callback) deadlocks the app, so do the work on a worker thread.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || agent_bar_hide_impl(app));
+    }
+    #[cfg(not(windows))]
+    agent_bar_hide_impl(app);
+}
+
+fn agent_bar_hide_impl(app: tauri::AppHandle) {
     BAR_WANTED.store(false, Ordering::SeqCst);
     #[cfg(target_os = "macos")]
     {
@@ -313,7 +436,11 @@ fn agent_bar_hide(app: tauri::AppHandle) {
             }
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    if let Some(bar) = app.get_webview_window("agentbar") {
+        let _ = bar.hide();
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     let _ = app;
 }
 
@@ -368,6 +495,22 @@ fn toggle_window(app: &tauri::AppHandle) {
 
 #[tauri::command]
 fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = open_settings_impl(app) {
+                eprintln!("{}: {e}", "open_settings");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    open_settings_impl(app)
+}
+
+fn open_settings_impl(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.show();
         let _ = window.set_focus();
@@ -383,8 +526,8 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
             WebviewUrl::App("index.html?window=settings".into()),
         )
         .title("Clickr Settings")
-        .inner_size(340.0, 640.0)
-        .min_inner_size(340.0, 520.0)
+        .inner_size(340.0 * ui_zoom(), 640.0 * ui_zoom())
+        .min_inner_size(340.0 * ui_zoom(), 520.0 * ui_zoom())
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -402,6 +545,11 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
 
         #[cfg(target_os = "macos")]
         platform::disable_window_shadow(&window);
+        #[cfg(windows)]
+        {
+            apply_ui_zoom(&window);
+            platform::prepare_overlay(&window, false, false);
+        }
 
         let opened_at = std::time::Instant::now();
         let window_for_event = window.clone();
@@ -414,7 +562,17 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
                 // been open for a moment, so a real click elsewhere
                 // is what triggers this, not creation noise.
                 if opened_at.elapsed() > std::time::Duration::from_millis(300) {
-                    let _ = window_for_event.close();
+                    // Windows also reports "lost focus" when you start dragging the window by its
+                    // header, so there it waits until the pointer is really outside the window.
+                    #[cfg(windows)]
+                    {
+                        let w = window_for_event.clone();
+                        std::thread::spawn(move || platform::close_when_clicked_away(w));
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        let _ = window_for_event.close();
+                    }
                 }
             }
         });
@@ -437,16 +595,22 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
 /// diagnostics" on). Nothing about screen contents or chats is included.
 #[tauri::command]
 fn bug_diagnostics(app: tauri::AppHandle) -> serde_json::Value {
-    let os = std::process::Command::new("sw_vers")
-        .arg("-productVersion")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
+    #[cfg(windows)]
+    let (os_label, os) = ("Windows", platform::os_version());
+    #[cfg(not(windows))]
+    let (os_label, os) = (
+        "macOS",
+        std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default(),
+    );
     serde_json::json!({
         "app_version": app.package_info().version.to_string(),
-        "os": format!("macOS {os}"),
+        "os": format!("{os_label} {os}"),
         "arch": std::env::consts::ARCH,
     })
 }
@@ -455,6 +619,22 @@ fn bug_diagnostics(app: tauri::AppHandle) -> serde_json::Value {
 /// loses focus, so people can switch away to check something and come back to finish.
 #[tauri::command]
 fn open_bug_report(app: tauri::AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = open_bug_report_impl(app) {
+                eprintln!("{}: {e}", "open_bug_report");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    open_bug_report_impl(app)
+}
+
+fn open_bug_report_impl(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("bugreport") {
         let _ = window.show();
         let _ = window.set_focus();
@@ -470,8 +650,8 @@ fn open_bug_report(app: tauri::AppHandle) -> Result<(), String> {
             WebviewUrl::App("index.html?window=bug".into()),
         )
         .title("Clickr Bug Report")
-        .inner_size(380.0, 470.0)
-        .min_inner_size(380.0, 260.0)
+        .inner_size(380.0 * ui_zoom(), 470.0 * ui_zoom())
+        .min_inner_size(380.0 * ui_zoom(), 260.0 * ui_zoom())
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -487,6 +667,11 @@ fn open_bug_report(app: tauri::AppHandle) -> Result<(), String> {
             Ok(window) => {
                 #[cfg(target_os = "macos")]
                 platform::disable_window_shadow(&window);
+        #[cfg(windows)]
+        {
+            apply_ui_zoom(&window);
+            platform::prepare_overlay(&window, false, false);
+        }
                 let _ = window.set_focus();
             }
             Err(e) => eprintln!("Failed to build bug report window: {e}"),
@@ -518,14 +703,14 @@ pub fn open_signin_window(app: tauri::AppHandle) {
             WebviewUrl::App("index.html?window=auth".into()),
         )
         .title("Sign in to Clickr")
-        .inner_size(360.0, 410.0)
-        .min_inner_size(360.0, 410.0)
+        .inner_size(360.0 * ui_zoom(), 410.0 * ui_zoom())
+        .min_inner_size(360.0 * ui_zoom(), 410.0 * ui_zoom())
         .resizable(false)
         .decorations(false)
         .transparent(true)
         .shadow(false)
         .always_on_top(true)
-        .skip_taskbar(true)
+        .skip_taskbar(!cfg!(windows))
         .center()
         .visible(true)
         .focused(true)
@@ -541,6 +726,11 @@ pub fn open_signin_window(app: tauri::AppHandle) {
                     Ok(window) => {
                         #[cfg(target_os = "macos")]
                         platform::disable_window_shadow(&window);
+        #[cfg(windows)]
+        {
+            apply_ui_zoom(&window);
+            platform::prepare_overlay(&window, false, false);
+        }
                     },
                 }
 
@@ -586,6 +776,9 @@ fn read_image_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
+    #[cfg(windows)]
+    platform::relaunch_after_exit();
+    #[cfg(not(windows))]
     // Relaunch through LaunchServices (`open`) a moment after this process has exited, so the new
     // copy isn't turned away by the single-instance guard and macOS treats it as a fresh launch
     // (which is what makes a newly granted Screen Recording permission take effect).
@@ -1325,6 +1518,11 @@ pub fn run() {
                         };
 
                         
+                        #[cfg(windows)]
+                        platform::log_line(&format!(
+                            "hotkey pressed: assist={is_assist} toggle={is_toggle} agent_hidden={}",
+                            agent_hidden()
+                        ));
                         if is_assist {
                             let _ =
                                 app.emit(
@@ -1361,8 +1559,9 @@ pub fn run() {
 
             // Desktop-only: static registration already happened via tauri.conf.json's
             // plugins.deep-link.desktop.schemes, but Linux needs the runtime call too.
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             {
+                // Windows: also covers a bare exe (tauri dev, target/release) the installer never registered; re-pointing it at the running exe on each launch is harmless.
                 let _ = app.deep_link().register("clickr");
             }
 
@@ -1427,6 +1626,27 @@ pub fn run() {
                 }
             }
 
+            #[cfg(windows)]
+            {
+                // No NSPanel on Windows: the pill is a normal undecorated, transparent,
+                // always-on-top window that stays out of the taskbar and Alt-Tab.
+                let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("Clickr")
+                    .inner_size(680.0 * ui_zoom(), 760.0 * ui_zoom())
+                    .resizable(false)
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .center()
+                    .visible(false)
+                    .build()?;
+                apply_ui_zoom(&window);
+                platform::prepare_overlay(&window, true, false);
+                platform::start_click_through_poller(app.handle().clone());
+            }
+
             let toggle: Shortcut =
                 DEFAULT_TOGGLE_SHORTCUT
                     .parse()
@@ -1437,11 +1657,24 @@ pub fn run() {
                     .parse()
                     .unwrap();
 
-            app.global_shortcut()
-                .register(toggle)?;
-
-            app.global_shortcut()
-                .register(assist)?;
+            #[cfg(not(windows))]
+            {
+                app.global_shortcut().register(toggle)?;
+                app.global_shortcut().register(assist)?;
+            }
+            // Windows: a hotkey another app already owns must not stop Clickr from starting
+            // (the tray icon still works, and the shortcut can be changed in Settings).
+            #[cfg(windows)]
+            {
+                if let Err(e) = app.global_shortcut().register(toggle) {
+                    eprintln!("Couldn't register the show/hide shortcut: {e}");
+                    platform::log_line(&format!("show/hide shortcut NOT registered: {e}"));
+                }
+                if let Err(e) = app.global_shortcut().register(assist) {
+                    eprintln!("Couldn't register the assist shortcut: {e}");
+                    platform::log_line(&format!("assist shortcut NOT registered: {e}"));
+                }
+            }
 
             let show_hide =
                 MenuItem::with_id(
@@ -1484,6 +1717,11 @@ pub fn run() {
                     app,
                     &[&show_hide, &settings_item, &report_item, &quit],
                 )?;
+            // The macOS tray image is a white template glyph; on Windows it would vanish on a light
+            // taskbar, so use the full-colour app icon there.
+            #[cfg(windows)]
+            let tray_icon_bytes = include_bytes!("../icons/64x64.png");
+            #[cfg(not(windows))]
             let tray_icon_bytes = include_bytes!("../icons/tray-icon.png");
             let tray_icon_image = image::load_from_memory(tray_icon_bytes)
                 .map_err(|e| e.to_string())?
@@ -1495,7 +1733,7 @@ pub fn run() {
                 tray_icon_width,
                 tray_icon_height,
             );
-            TrayIconBuilder::new()
+            let tray_builder = TrayIconBuilder::new()
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .menu(&menu)
@@ -1511,11 +1749,22 @@ pub fn run() {
                         let _ = open_bug_report(app.clone());
                     }
                     "quit" => {
-                        app.exit(0);
-                    }
+                    app.exit(0);
+                }
                     _ => {}
-                })
-                .build(app)?;
+                });
+            // Windows convention: left-click toggles the pill, right-click opens the menu.
+            #[cfg(windows)]
+            let tray_builder = tray_builder
+                .tooltip("Clickr AI")
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        toggle_window(tray.app_handle());
+                    }
+                });
+            tray_builder.build(app)?;
 
              #[cfg(target_os = "macos")]
              {
@@ -1537,6 +1786,7 @@ pub fn run() {
                 set_global_shortcuts,
                 open_settings,
                 quit_app,
+                get_ui_zoom,
                 read_image_file,
                 update_clickable_rect,
                 check_screen_recording_permission,
@@ -1563,6 +1813,7 @@ pub fn run() {
                 agent::agent_exec,
                 agent::agent_cursor_show,
                 agent::agent_cursor_hide,
+                agent::agent_pointer_pos,
                 agent::agent_tool_needs_screen,
                 agent::check_accessibility,
                 agent::request_accessibility,

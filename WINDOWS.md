@@ -7,6 +7,57 @@
 > 4. Never print, commit, or paste secrets. You do not need any to build.
 > 5. Before merging to `main`, the owner (or a Mac) must run `cargo check` + `npm run build` on macOS to prove the Mac build still compiles and runs.
 
+## Port status (kept up to date; last pass: publish-readiness)
+
+**Done and verified on Windows 11 (see the git log on the `windows` branch / PR #1)**
+- Builds: `cargo check`, `npm run build`, `tauri build` (NSIS installer), full `release-windows.ps1` DRY_RUN.
+- Native layer (`platform/windows.rs`): screen capture excluding Clickr (per display, with a 4 s timeout so a bad
+  virtual monitor can never hang the chat), active-window info, SendInput mouse / Unicode typing / key combos /
+  scroll, admin-window detection, DPI-aware 0-1000 grid, click-through for the transparent pill, Recycle Bin.
+- Agent Mode: UI Automation tree (`platform/uia.rs`); press / type / click / scroll verified end to end against a
+  throwaway test window; Cmd/Ctrl+Q and Alt+F4 blocked; status bar window fixed.
+- Windows-only fixes for real bugs found by testing the release build: app-wide freeze when creating or closing
+  windows from sync commands, hung all-displays capture, clipped agent bar, `clickr://` not registered for a bare
+  exe, translucent panels, Arial fallback font, default scrollbars, tool-window style reset by tao.
+- Polish: bundled Inter font, dark scrollbars, solid panels, entrance animation, no browser menus or shortcuts,
+  tray icon (colour, tooltip, left-click toggles), startup survives a taken hotkey, auth window in the taskbar,
+  UI scale 1.0 (tunable with a number in `ui-zoom.txt` inside `%APPDATA%\net.getclickr.app`).
+- Installer: per-user NSIS, Start-menu entry, `clickr://`, clean uninstall (stops the app, removes the login entry
+  and the scheme). Open-at-login (autostart) verified.
+- Separate update feed `latest-windows.json`, so Mac and Windows releases never overwrite each other.
+
+**Still needs a human (not possible from the dev PC)**
+1. **Code-signing certificate** (Azure Trusted Signing or an OV/EV cert), then set `CLICKR_CERT_THUMBPRINT` or
+   `CLICKR_SIGN_COMMAND` for `release-windows.ps1`. Until then SmartScreen warns on first run.
+2. **First real release:** copy the update-signing key to `~/.tauri/clickr-updater.key`, run
+   `release-windows.ps1`, install that build, publish the next version and confirm the in-app update installs.
+3. **macOS check of this branch** before merging: `cargo check`, `npm run build`, launch and run one chat.
+4. **Website** (separate repo, see "Website tasks" below).
+5. **Hand tests** that need a person at the PC: summon hotkey over full-screen apps, drag + remembered pill
+   position, drop / paste an image and a PDF, 125% / 150% / 200% display scaling, a second monitor, Stripe
+   upgrade flow opening the browser, Google + email sign-in round trip, sign-out clears the Credential Manager
+   entry, Agent Mode in a real browser / File Explorer, Stop button mid-run, admin-window message.
+
+**Known limits:** Agent Mode and the cursor overlay use the primary display only; x64 build (ARM64 PCs run it
+under emulation); screen-capture exclusion needs Windows 10 version 2004 or later; WebView2 draws text with
+grayscale anti-aliasing in transparent windows.
+
+## Website tasks (repo `getclickr`, Next.js on Vercel)
+- `app/download/windows/route.ts` (mirror `app/download/mac/route.ts`):
+  ```ts
+  import { NextResponse } from "next/server";
+  export const dynamic = "force-dynamic";
+  export function GET() {
+    return NextResponse.redirect(
+      "https://xoebvsthsmrnuusduzfg.supabase.co/storage/v1/object/public/releases/Clickr-latest-setup.exe",
+      302,
+    );
+  }
+  ```
+- Enable the disabled Windows card in `app/download/page.tsx` and the Windows option in `components/Hero.tsx`
+  (link to `/download/windows`), update the FAQ ("Is there a Windows version?") and `lib/status.ts`.
+- Mention the SmartScreen "More info, then Run anyway" step on the Windows card until the app is signed.
+
 Read this first, then README.md and RELEASING.md. The Mac app is finished and released (0.1.1);
 the Windows port is the next project. The React/TypeScript UI, the Supabase backend, accounts,
 billing, tiers and the update feed are shared. Only the native layer differs.
@@ -50,7 +101,7 @@ Also needed: an accessibility-tree listing for Agent Mode (mac uses AX in `ax.rs
 ## Packaging, signing, updates
 - Build: `npm run tauri build` makes an NSIS installer (`.exe`) or MSI. Add a `windows` section in `src-tauri/tauri.conf.json` (the `bundle.windows` key) and set `bundle.targets`.
 - Updates reuse the same updater key. The public key is already in `tauri.conf.json`; the PRIVATE key is `~/.tauri/clickr-updater.key` on the Mac. Copy it to the PC securely (password manager / encrypted drive, never git or chat) to sign Windows updates.
-- Extend `scripts/release.sh` (bash; run it in Git Bash/WSL) or add `release-windows.ps1` to upload `Clickr-<ver>-setup.exe` and add a `windows-x86_64` entry to the SAME `latest.json` (it currently only has darwin entries). Never overwrite the mac entries.
+- Releases: `scripts/release-windows.ps1` (and `rollback-windows.ps1`) build the NSIS installer and publish it with its own feed `latest-windows.json`. See "Separate update feeds" below.
 - Unsigned installers trigger Microsoft SmartScreen ("Windows protected your PC"), like Gatekeeper on Mac. A code-signing certificate (Azure Trusted Signing or an OV/EV cert) fixes it when going public.
 - Website: `/download` page has a disabled Windows card, `app/download/mac/route.ts` is the Mac link. Add `app/download/windows/route.ts` redirecting to the new installer, enable the Windows card and the hero button.
 
@@ -91,7 +142,7 @@ Also needed: an accessibility-tree listing for Agent Mode (mac uses AX in `ax.rs
 
 ## Coordination between the two platforms
 - **One version number for both.** `scripts/bump-version.sh X.Y.Z` edits `package.json`, `Cargo.toml` and `tauri.conf.json`. A release of one platform must not change the other's behaviour; merging Windows work only adds files/cfg blocks.
-- **One update feed.** `https://xoebvsthsmrnuusduzfg.supabase.co/storage/v1/object/public/releases/latest.json` currently has `darwin-aarch64` and `darwin-x86_64` only. Add `windows-x86_64` (and later `windows-aarch64`) to the SAME file. The Windows release script must READ the current `latest.json`, add/replace only the Windows entry, and write it back. Overwriting it would stop Mac updates. Storage cannot overwrite, so `storage rm --yes` then `storage cp` (see the `up()` helper in `scripts/release.sh`); do it files-first, `latest.json` last.
+- **Separate update feeds (so neither platform can overwrite the other).** The Mac keeps `latest.json` (written only by `scripts/release.sh`). Windows has `latest-windows.json`, `manifest-windows-<ver>.json` and `Clickr-<ver>-setup.exe` (written only by `scripts/release-windows.ps1`); the Windows build is pointed at its feed by `src-tauri/tauri.windows.conf.json`, which Tauri merges on Windows builds only. Version numbers may differ per platform. **Sharing a fix:** fixes live in the one codebase, so commit/merge the change, then release each platform from its own machine (Mac: `release.sh`, PC: `release-windows.ps1`). Both feeds use the same signing key.
 - **Updater artifact on Windows** is the NSIS `.exe` (plus `.sig`) when `bundle.createUpdaterArtifacts` is true; the signature uses the same minisign key (`TAURI_SIGNING_PRIVATE_KEY`, content of the key file, not a path).
 - **Installer choice.** Prefer NSIS (per-user, no admin prompt, supports updater and the `clickr://` scheme registration). Set `bundle.windows.nsis.installMode = "currentUser"`.
 - **Website** (`/Users/…/getclickr`, separate repo, owner handles): add `app/download/windows/route.ts` (302 to `…/releases/Clickr-latest-setup.exe`), enable the Windows card in `app/download/page.tsx` and the Windows option in `components/Hero.tsx`, update the FAQ and `lib/status.ts`.
@@ -105,7 +156,7 @@ Also needed: an accessibility-tree listing for Agent Mode (mac uses AX in `ax.rs
 5. Free vs Pro vs Pro+ gating (use the 100%-off promo code in Stripe live mode or a test account) and the upgrade modal opens the browser.
 6. Settings: hotkeys, custom models (Pro+), memory, open at login (autostart), software update check, report a bug.
 7. Agent Mode (Pro+): click, type, scroll, key combos in Notepad, a browser, File Explorer; the stop button; no typing into the wrong window; admin-window case handled.
-8. Auto-update: install version N, publish N+1, confirm the app offers and installs it, and the Mac entry in `latest.json` is untouched.
+8. Auto-update: install version N, publish N+1, confirm the app offers and installs it, and the Mac feed `latest.json` is untouched.
 9. Uninstall leaves no background process; sign out clears the Credential Manager entry.
 10. On macOS: `cargo check`, `npm run build`, and the app still launches and runs a chat (proves the Mac side is not broken).
 

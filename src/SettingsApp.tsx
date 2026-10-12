@@ -9,6 +9,7 @@ import { onboardingKey } from "./storage";
 import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { reportProblem } from "./bugReport";
+import { IS_WINDOWS } from "./platform";
 
 const SUPPORT_EMAIL = "clickraisupport@gmail.com";
 
@@ -109,6 +110,19 @@ function Icon({
 }
 
 function shortcutDisplay(shortcut: string) {
+  if (IS_WINDOWS) {
+    return shortcut
+      .split("+")
+      .map((part) =>
+        part
+          .replace(/^(CmdOrCtrl|Command|Control)$/, "Ctrl")
+          .replace(/^Option$/, "Alt")
+          .replace(/^Return$/, "Enter")
+          .replace(/^Key(?=[A-Z]$)/, "")
+          .replace(/^Digit/, ""),
+      )
+      .join(" + ");
+  }
   return shortcut
     .replace("CmdOrCtrl", "⌘")
     .replace("Command", "⌘")
@@ -137,7 +151,7 @@ function keyboardEventToShortcut(e: KeyboardEvent) {
 
   const modifierParts: string[] = [];
 
-  if (e.metaKey || e.ctrlKey) modifierParts.push("CmdOrCtrl");
+  if (IS_WINDOWS ? e.ctrlKey : e.metaKey || e.ctrlKey) modifierParts.push("CmdOrCtrl");
   if (e.shiftKey) modifierParts.push("Shift");
   if (e.altKey) modifierParts.push("Alt");
 
@@ -287,7 +301,7 @@ export default function SettingsApp() {
 
   async function toggleOpenAtLogin() {
     const next = !openAtLogin;
-    setOpenAtLogin(next); // optimistic; reverted if macOS refuses
+    setOpenAtLogin(next); // optimistic; reverted if the OS refuses
     try {
       if (next) await enableAutostart();
       else await disableAutostart();

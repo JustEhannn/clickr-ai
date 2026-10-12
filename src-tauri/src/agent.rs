@@ -25,20 +25,24 @@ fn is_submit_label(role: &str, label: &str) -> bool {
             .any(|w| l.split(|c: char| !c.is_alphanumeric()).any(|word| word == *w))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn focus_note() -> String {
     crate::platform::frontmost_pid().map(crate::platform::ax::focus_summary).unwrap_or_default()
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 fn focus_note() -> String {
     String::new()
 }
 
 const MAX_FILE_BYTES: usize = 200 * 1024;
 const DENIED_COMPONENTS: &[&str] = &[".ssh", ".aws", ".gnupg", ".kube", ".docker", "Library", "Keychains", ".Trash"];
+/// Windows equivalents of Library/Keychains: app data, credential stores, the recycle bin.
+#[cfg(windows)]
+const DENIED_COMPONENTS_WINDOWS: &[&str] = &["AppData", "Application Data", "NTUSER.DAT", "$RECYCLE.BIN"];
 
 fn home() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .and_then(|h| h.canonicalize().ok())
         .ok_or_else(|| "Couldn't locate your home folder.".to_string())
@@ -48,7 +52,7 @@ fn home() -> Result<PathBuf, String> {
 /// exists, and refuses anything outside $HOME or inside a secrets folder.
 fn resolve(raw: &str) -> Result<PathBuf, String> {
     let home = home()?;
-    let expanded = if let Some(rest) = raw.strip_prefix("~/") {
+    let expanded = if let Some(rest) = raw.strip_prefix("~/").or_else(|| if cfg!(windows) { raw.strip_prefix("~\\") } else { None }) {
         home.join(rest)
     } else if raw == "~" {
         home.clone()
@@ -81,6 +85,10 @@ fn resolve(raw: &str) -> Result<PathBuf, String> {
     for c in rel.components() {
         if let Component::Normal(n) = c {
             if DENIED_COMPONENTS.iter().any(|d| n == std::ffi::OsStr::new(d)) {
+                return Err("That location is protected.".to_string());
+            }
+            #[cfg(windows)]
+            if DENIED_COMPONENTS_WINDOWS.iter().any(|d| n.to_string_lossy().eq_ignore_ascii_case(d)) {
                 return Err("That location is protected.".to_string());
             }
         }
@@ -126,6 +134,27 @@ pub async fn agent_exec(app: AppHandle, name: String, args: Value, background: O
         .map_err(|e| format!("Action failed: {e}"))?
 }
 
+/// Where the on-screen agent cursor currently is (logical points). The real pointer is never moved.
+#[cfg(windows)]
+static LAST_OVERLAY: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+/// Windows: glide the on-screen agent cursor to a point in logical screen coordinates and wait until
+/// it has arrived. Only the overlay moves; the user's real mouse stays exactly where it was.
+#[cfg(windows)]
+fn glide_to(app: &AppHandle, gx: f64, gy: f64) {
+    let (ox, oy, _, _) = crate::platform::main_display_bounds();
+    let from = (*LAST_OVERLAY.lock().unwrap())
+        .or_else(crate::platform::pointer_pos_logical)
+        .unwrap_or((gx, gy));
+    let ms = crate::platform::glide_ms_logical(from, (gx, gy));
+    let _ = app.emit(
+        "agent-cursor",
+        json!({ "kind": "move", "x": gx - ox, "y": gy - oy, "label": "", "fromX": from.0 - ox, "fromY": from.1 - oy, "ms": ms }),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(ms));
+    *LAST_OVERLAY.lock().unwrap() = Some((gx, gy));
+}
+
 /// Tells the cursor overlay what the agent is doing so the user can watch it.
 fn cursor_event(app: &AppHandle, kind: &str, x: f64, y: f64, label: &str) {
     let _ = app.emit("agent-cursor", json!({ "kind": kind, "x": x, "y": y, "label": label }));
@@ -143,9 +172,9 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             let (ox, oy, _, _) = platform::main_display_bounds();
 
             // What is actually under that point? Refuse to hit Submit on an empty answer.
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             let under = platform::pid_at_point(sx, sy).and_then(|pid| platform::ax::element_at(pid, sx, sy));
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", windows)))]
             let under: Option<(String, String)> = None;
             if let Some((role, label)) = &under {
                 if is_submit_label(role, label) && !TYPED_SINCE_SUBMIT.load(std::sync::atomic::Ordering::SeqCst) {
@@ -158,8 +187,13 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 }
             }
             // Glide the on-screen agent cursor to the target first, then click.
-            cursor_event(app, "move", sx - ox, sy - oy, "");
-            std::thread::sleep(std::time::Duration::from_millis(380));
+            #[cfg(windows)]
+            glide_to(app, sx, sy);
+            #[cfg(not(windows))]
+            {
+                cursor_event(app, "move", sx - ox, sy - oy, "");
+                std::thread::sleep(std::time::Duration::from_millis(380));
+            }
             cursor_event(app, "click", sx - ox, sy - oy, "");
             platform::mouse_click(x, y, right, double, real)?;
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -175,14 +209,20 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             let preview: String = text.chars().take(24).collect();
 
             // Optionally focus a listed field first, in the same step.
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             if let Some(id) = args.get("into_id").and_then(|v| v.as_f64()) {
+                #[cfg(windows)]
+                if let Some((gx, gy)) = platform::ax::element_center(id as usize) {
+                    let (ox, oy, _, _) = platform::main_display_bounds();
+                    glide_to(app, gx, gy);
+                    cursor_event(app, "click", gx - ox, gy - oy, "");
+                }
                 platform::ax::press_element(id as usize)?;
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
 
             // Never type blind: something editable must have focus.
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             if let Some(pid) = platform::frontmost_pid() {
                 if let Some(f) = platform::ax::focus_info(pid) {
                     if !f.editable {
@@ -200,7 +240,7 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             TYPED_SINCE_SUBMIT.store(true, std::sync::atomic::Ordering::SeqCst);
             std::thread::sleep(std::time::Duration::from_millis(180));
             // Read the field back so the model knows whether the text actually landed.
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             {
                 if let Some(pid) = platform::frontmost_pid() {
                     return Ok(match platform::ax::focused_value(pid) {
@@ -224,7 +264,7 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             if matches!(key.to_lowercase().as_str(), "return" | "enter")
                 && !TYPED_SINCE_SUBMIT.load(std::sync::atomic::Ordering::SeqCst)
             {
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 if let Some(f) = platform::frontmost_pid().and_then(platform::ax::focus_info) {
                     if f.editable && f.value.is_empty() {
                         return Err("Refused: the focused field is empty and nothing has been typed, so Return would submit nothing. Enter the answer first.".to_string());
@@ -249,7 +289,7 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             Ok("Scrolled.".to_string())
         }
         "list_ui_elements" => {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             {
                 if !platform::accessibility_trusted() {
                     return Err("Accessibility permission is required.".to_string());
@@ -257,11 +297,11 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 let pid = platform::frontmost_pid().ok_or("Couldn't find the frontmost app.")?;
                 return Ok(platform::ax::list_elements(pid, platform::main_display_bounds()));
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", windows)))]
             Err("Not available on this platform.".to_string())
         }
         "press_element" => {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             {
                 if !platform::accessibility_trusted() {
                     return Err("Accessibility permission is required.".to_string());
@@ -279,15 +319,20 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 }
                 if let Some((gx, gy)) = platform::ax::element_center(id) {
                     let (ox, oy, _, _) = platform::main_display_bounds();
-                    cursor_event(app, "move", gx - ox, gy - oy, "");
-                    std::thread::sleep(std::time::Duration::from_millis(380));
+                    #[cfg(windows)]
+                    glide_to(app, gx, gy);
+                    #[cfg(not(windows))]
+                    {
+                        cursor_event(app, "move", gx - ox, gy - oy, "");
+                        std::thread::sleep(std::time::Duration::from_millis(380));
+                    }
                     cursor_event(app, "click", gx - ox, gy - oy, "");
                 }
                 let result = platform::ax::press_element(id)?;
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 return Ok(format!("{result} {}", focus_note()));
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", windows)))]
             Err("Not available on this platform.".to_string())
         }
         "wait" => {
@@ -309,6 +354,20 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             if app.starts_with('-') || app.contains('/') || app.len() > 80 {
                 return Err("Invalid app name.".to_string());
             }
+            #[cfg(windows)]
+            let status = {
+                use std::os::windows::process::CommandExt;
+                if !app.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_')) {
+                    return Err("Invalid app name.".to_string());
+                }
+                // `start` resolves Start-menu/App Paths names ("notepad", "chrome", "calc").
+                std::process::Command::new("cmd")
+                    .args(["/C", "start", "", app])
+                    .creation_flags(0x0800_0000)
+                    .status()
+                    .map_err(|e| e.to_string())?
+            };
+            #[cfg(not(windows))]
             let status = std::process::Command::new("open").arg("-a").arg(app).status().map_err(|e| e.to_string())?;
             if !status.success() {
                 return Err(format!("Couldn't open {app}."));
@@ -361,6 +420,11 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
         }
         "trash_file" => {
             let path = resolve(str_arg(args, "path")?)?;
+            #[cfg(windows)]
+            {
+                return crate::platform::trash_path(&path).map(|_| format!("Moved {} to the Recycle Bin.", path.display()));
+            }
+            #[cfg(not(windows))]
             let status = std::process::Command::new("osascript")
                 .args([
                     "-e", "on run argv",
@@ -370,6 +434,7 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 .arg(&path)
                 .status()
                 .map_err(|e| e.to_string())?;
+            #[cfg(not(windows))]
             if status.success() { Ok(format!("Moved {} to the Trash.", path.display())) } else { Err("Couldn't move it to the Trash.".to_string()) }
         }
         other => Err(format!("Unknown tool: {other}")),
@@ -449,9 +514,29 @@ static CURSOR_WANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 /// Shows the transparent, click-through overlay that draws the agent's cursor.
 #[tauri::command]
 pub fn agent_cursor_show(app: AppHandle) -> Result<(), String> {
+    // Windows: sync commands run on the UI thread inside a WebView2 callback, and building a
+    // window from there deadlocks the whole app. Do it from a worker thread instead.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = agent_cursor_show_impl(app) {
+                eprintln!("{}: {e}", "agent_cursor_show");
+            }
+        });
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    agent_cursor_show_impl(app)
+}
+
+pub fn agent_cursor_show_impl(app: AppHandle) -> Result<(), String> {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
     CURSOR_WANTED.store(true, std::sync::atomic::Ordering::SeqCst);
+    #[cfg(windows)]
+    {
+        *LAST_OVERLAY.lock().unwrap() = None;
+    }
     TYPED_SINCE_SUBMIT.store(false, std::sync::atomic::Ordering::SeqCst);
     if app.get_webview_window("cursor").is_some() {
         return Ok(());
@@ -488,8 +573,32 @@ pub fn agent_cursor_show(app: AppHandle) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// Where the real pointer is, in logical points relative to the display (Windows only), so the
+/// overlay can start its first glide from there.
+#[tauri::command]
+pub fn agent_pointer_pos() -> Option<(f64, f64)> {
+    #[cfg(windows)]
+    {
+        let (ox, oy, _, _) = crate::platform::main_display_bounds();
+        return crate::platform::pointer_pos_logical().map(|(x, y)| (x - ox, y - oy));
+    }
+    #[cfg(not(windows))]
+    None
+}
+
 #[tauri::command]
 pub fn agent_cursor_hide(app: AppHandle) {
+    // Windows: closing/destroying windows from a sync command (UI thread, inside a WebView2
+    // callback) deadlocks the app, so do the work on a worker thread.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || agent_cursor_hide_impl(app));
+    }
+    #[cfg(not(windows))]
+    agent_cursor_hide_impl(app);
+}
+
+pub fn agent_cursor_hide_impl(app: AppHandle) {
     use tauri::Manager;
     CURSOR_WANTED.store(false, std::sync::atomic::Ordering::SeqCst);
     if let Some(window) = app.get_webview_window("cursor") {
