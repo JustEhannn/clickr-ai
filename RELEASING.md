@@ -89,3 +89,47 @@ installed** — they would have to download a new DMG once. Keep a copy in a pas
 - Until the app is signed with an Apple Developer ID, each update is ad-hoc signed, so macOS may
   re-ask for Keychain access after updating. A Developer ID certificate removes that.
 - "Check now" in Settings says "Couldn't check" until the first release is published.
+
+---
+
+# Windows releases
+
+Windows has its **own update feed**, so a Mac release can never remove or overwrite a Windows update
+(and the other way round). Neither script reads or writes the other platform's files.
+
+| Thing | Mac | Windows |
+|---|---|---|
+| Release script | `scripts/release.sh` | `scripts/release-windows.ps1` (run on a Windows PC) |
+| Rollback script | `scripts/rollback.sh <ver>` | `scripts/rollback-windows.ps1 <ver>` |
+| Update feed | `releases/latest.json` | `releases/latest-windows.json` |
+| Saved feed per version | `manifest-<ver>.json` | `manifest-windows-<ver>.json` |
+| Installer download | `Clickr-latest.dmg` | `Clickr-latest-setup.exe` |
+| Website link | `/download/mac` | `/download/windows` |
+
+The version number can differ between platforms. To ship a fix to both, commit and merge it once, then
+release each platform from its own machine (Mac: `scripts/release.sh`, PC: `scripts/release-windows.ps1`).
+Both use the same update-signing key.
+
+## On the Windows PC (one-time)
+1. Install Git, Node 20+, Rust (MSVC toolchain), Visual Studio Build Tools with the C++ workload **and the
+   Windows 11 SDK**, and run `npm install`.
+2. Copy the update-signing key to `%USERPROFILE%\.tauri\clickr-updater.key` (never into git or chat).
+3. `npx supabase login`.
+
+## Publishing
+```powershell
+scripts/bump-version.sh 0.1.2        # in Git Bash
+powershell -File scripts/release-windows.ps1 "What's new, in plain English"
+```
+Test first with `$env:DRY_RUN=1` (builds and signs, uploads nothing).
+
+## Removing the SmartScreen warning
+Unsigned installers show "Windows protected your PC". Buy or enable a code-signing certificate
+(Azure Trusted Signing, or an OV/EV certificate), then set one of these before running the script:
+- `CLICKR_CERT_THUMBPRINT` = the SHA-1 thumbprint of a certificate installed in the Windows store, or
+- `CLICKR_SIGN_COMMAND` = a signing command with `%1` for the file (cloud signing services).
+
+## Testing an installer on a PC
+The installer is per-user (no admin prompt): run `Clickr AI_<ver>_x64-setup.exe`. It installs to
+`%LOCALAPPDATA%\Clickr AI`, adds a Start-menu entry and registers `clickr://`. Uninstalling stops the app and
+removes its "open at login" entry and the `clickr://` registration.

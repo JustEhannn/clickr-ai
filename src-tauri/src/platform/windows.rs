@@ -22,7 +22,7 @@ use windows::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     MapVirtualKeyW, SendInput, VkKeyScanW, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE,
     KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
@@ -427,12 +427,10 @@ pub fn prepare_overlay(window: &tauri::WebviewWindow, tool: bool, no_activate: b
 /// tao rewrites a window's extended styles whenever one of its flags changes (the click-through
 /// poller toggles one constantly), which drops WS_EX_TOOLWINDOW. Re-apply it so Clickr stays out
 /// of Alt-Tab.
-fn ensure_tool_window(window: &tauri::WebviewWindow) {
+fn ensure_tool_window_hwnd(hwnd: HWND) {
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
     };
-    let Ok(hwnd) = window.hwnd() else { return };
-    let hwnd = HWND(hwnd.0);
     unsafe {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
         if ex & WS_EX_TOOLWINDOW.0 == 0 {
@@ -522,14 +520,27 @@ pub fn relaunch_after_exit() {
 pub fn start_click_through_poller(app: tauri::AppHandle) {
     std::thread::spawn(move || {
         let mut last: Option<bool> = None;
+        // Everything per tick is a plain Win32 read on this thread: no round trips to the UI
+        // thread, so the poller can run at ~60 Hz without ever slowing the pill down.
+        let mut cached: Option<(tauri::WebviewWindow, HWND)> = None;
         loop {
-            std::thread::sleep(Duration::from_millis(25));
-            let Some(window) = app.get_webview_window("main") else { continue };
-            if !window.is_visible().unwrap_or(false) {
+            let Some((window, hwnd)) = cached.clone().or_else(|| {
+                let w = app.get_webview_window("main")?;
+                let h = HWND(w.hwnd().ok()?.0);
+                cached = Some((w.clone(), h));
+                Some((w, h))
+            }) else {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            };
+            if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
                 last = None;
+                std::thread::sleep(Duration::from_millis(100));
                 continue;
             }
-            ensure_tool_window(&window);
+            std::thread::sleep(Duration::from_millis(16));
+            ensure_tool_window_hwnd(hwnd);
+
             let ignore = if crate::agent_hidden() {
                 true
             } else if crate::is_drag_active() {
@@ -538,17 +549,18 @@ pub fn start_click_through_poller(app: tauri::AppHandle) {
                 match crate::safe_rect() {
                     None => false,
                     Some((rx, ry, rw, rh)) => {
-                        let (Ok(pos), Ok(scale)) = (window.outer_position(), window.scale_factor()) else {
-                            continue;
-                        };
+                        let mut rect = RECT::default();
                         let mut cursor = POINT::default();
-                        if unsafe { GetCursorPos(&mut cursor) }.is_err() {
+                        if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err()
+                            || unsafe { GetCursorPos(&mut cursor) }.is_err()
+                        {
                             continue;
                         }
-                        // The page is zoomed (ui_zoom), so its CSS pixels are bigger on screen.
-                        let scale = scale * ui_zoom();
-                        let left = pos.x as f64 + rx * scale;
-                        let top = pos.y as f64 + ry * scale;
+                        // The page is zoomed (ui_zoom) and the window may sit on a scaled monitor.
+                        let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as f64 / 96.0;
+                        let scale = dpi * ui_zoom();
+                        let left = rect.left as f64 + rx * scale;
+                        let top = rect.top as f64 + ry * scale;
                         let inside = (cursor.x as f64) >= left
                             && (cursor.x as f64) <= left + rw * scale
                             && (cursor.y as f64) >= top

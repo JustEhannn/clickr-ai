@@ -15,9 +15,12 @@ try {
   throw "No saved Windows release $Good found (only versions published with release-windows.ps1 can be restored)."
 }
 function Up($src, $dest, $cache) {
+  $ErrorActionPreference = "Continue"   # supabase prints progress on stderr
   npx supabase storage rm "ss:///releases/$dest" --linked --experimental --yes *> $null
   npx supabase storage cp $src "ss:///releases/$dest" --linked --experimental --cache-control $cache *> $null
-  if ($LASTEXITCODE -ne 0) { throw "UPLOAD FAILED: $dest" }
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = "Stop"
+  if ($code -ne 0) { throw "UPLOAD FAILED: $dest" }
 }
 Write-Host "Restoring the Windows update feed to version $Good..."
 Up (Join-Path $Tmp "latest-windows.json") "latest-windows.json" "max-age=60"

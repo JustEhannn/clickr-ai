@@ -20,3 +20,49 @@ if (IS_WINDOWS && typeof document !== "undefined") {
 if (IS_WINDOWS) {
   void import("@fontsource-variable/inter/index.css");
 }
+
+// ---- Windows polish: the app should never feel like "a web page in a window" ----
+if (IS_WINDOWS && typeof document !== "undefined") {
+  // WebView2 keeps browser behaviours that WKWebView on macOS doesn't expose. Switch them off.
+  const isEditable = (t: EventTarget | null) =>
+    t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA)$/.test(t.tagName));
+
+  // No "Back / Refresh / Save as / Inspect" browser menu; text fields keep Cut / Copy / Paste.
+  document.addEventListener("contextmenu", (e) => {
+    if (!isEditable(e.target)) e.preventDefault();
+  });
+
+  // F5 / Ctrl+R reloading the pill would lose the conversation; Ctrl+P prints, Ctrl+F opens a
+  // find bar, Ctrl+U / Ctrl+S / F7 are browser features, and Ctrl +/-/0 would zoom the layout.
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      const k = e.key.toLowerCase();
+      const ctrl = e.ctrlKey || e.metaKey;
+      const blocked =
+        k === "f5" || k === "f7" || k === "f12" ||
+        (ctrl && ["r", "p", "u", "s", "f", "g", "j", "o", "+", "-", "=", "0"].includes(k));
+      if (blocked) e.preventDefault();
+    },
+    true,
+  );
+  // Ctrl + wheel and pinch would zoom the page.
+  document.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+
+  // Red spell-check squiggles in the chat box look unfinished.
+  document.addEventListener("focusin", (e) => {
+    const t = e.target;
+    if (t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) t.spellcheck = false;
+  });
+
+  // Smooth entrance when the pill is brought up with the hotkey / tray icon.
+  void import("@tauri-apps/api/event").then(({ listen }) =>
+    listen("panel-shown", () => {
+      const root = document.documentElement;
+      root.classList.remove("panel-enter");
+      void root.offsetWidth; // restart the animation if it is already running
+      root.classList.add("panel-enter");
+      window.setTimeout(() => root.classList.remove("panel-enter"), 260);
+    }),
+  );
+}
