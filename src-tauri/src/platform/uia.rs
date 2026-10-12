@@ -229,9 +229,22 @@ pub fn element_center(id: usize) -> Option<(f64, f64)> {
 /// Presses (or focuses, for text fields) a listed element. No mouse involved.
 pub fn press_element(id: usize) -> Result<String, String> {
     let _ = automation(); // makes sure COM is initialised on this thread
-    let held = HELD.lock().unwrap();
-    let h = held.get(id).ok_or("Unknown element id — call list_ui_elements again first.")?;
-    invoke_like(&h.el, h.role)
+    let (el, role) = {
+        let held = HELD.lock().unwrap();
+        let h = held.get(id).ok_or("Unknown element id — call list_ui_elements again first.")?;
+        (h.el.clone(), h.role)
+    };
+    // Controls that open a modal dialog do not return from Invoke until it is closed.
+    struct SendEl(IUIAutomationElement);
+    // UIA elements are free-threaded once the thread is in the MTA, which every thread here is.
+    unsafe impl Send for SendEl {}
+    let held_el = SendEl(el);
+    with_timeout(1500, move || {
+        let e = held_el;
+        let _ = automation(); // COM must be initialised on this helper thread too
+        invoke_like(&e.0, role)
+    })
+        .unwrap_or_else(|| Ok("Pressed (the app is probably showing a dialog now).".to_string()))
 }
 
 /// Role and label of a listed element (for safety checks before pressing it).
@@ -320,4 +333,115 @@ pub fn focus_summary(pid: i32) -> String {
         ),
         None => "Focus unknown (could not read it).".to_string(),
     }
+}
+
+/* =========================================================
+   Clicking and scrolling without the real mouse
+   =========================================================
+   Agent Mode on Windows has its own on-screen cursor. The real pointer stays where the user left
+   it: clicks go through UI Automation patterns (Invoke / Toggle / Select / Expand / default
+   action), and only if an app exposes none of those do windows.rs fall back to posted window
+   messages and, last of all, real input. */
+
+/// Runs `f` on a helper thread and gives up waiting after `ms`. Some controls (anything that opens
+/// a modal dialog) don't return from Invoke until the dialog is closed.
+fn with_timeout<T: Send + 'static>(ms: u64, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(Duration::from_millis(ms)).ok()
+}
+
+fn try_click_patterns(el: &IUIAutomationElement, double: bool) -> Option<&'static str> {
+    unsafe {
+        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
+            if p.Invoke().is_ok() {
+                return Some("invoked");
+            }
+        }
+        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
+            if p.Toggle().is_ok() {
+                return Some("toggled");
+            }
+        }
+        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId) {
+            if p.Select().is_ok() {
+                return Some(if double { "selected" } else { "selected" });
+            }
+        }
+        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) {
+            if p.Expand().is_ok() {
+                return Some("expanded");
+            }
+        }
+        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(UIA_LegacyIAccessiblePatternId) {
+            if p.DoDefaultAction().is_ok() {
+                return Some("activated");
+            }
+        }
+    }
+    None
+}
+
+/// Clicks whatever is at a physical screen point by asking the control itself (nothing moves the
+/// pointer). Walks up from the exact spot to the nearest ancestor that can be pressed or focused.
+/// Returns true when something took the click.
+pub fn click_at_physical(px: i32, py: i32, double: bool) -> bool {
+    with_timeout(1500, move || {
+        let Some(uia) = automation() else { return false };
+        let Some(start) = (unsafe { uia.ElementFromPoint(POINT { x: px, y: py }).ok() }) else { return false };
+        let Some(walker) = (unsafe { uia.ControlViewWalker().ok() }) else { return false };
+        let mut cur = Some(start);
+        for _ in 0..7 {
+            let Some(el) = cur else { break };
+            let ct = unsafe { el.CurrentControlType() }.map(|c| c.0).unwrap_or(0);
+            // A window is "nothing under the click": let the caller fall back.
+            if ct == 50032 {
+                break;
+            }
+            if try_click_patterns(&el, double).is_some() {
+                return true;
+            }
+            // Text inputs: clicking them means "put the caret here".
+            if matches!(ct, 50004 | 50030 | 50003 | 50016) && unsafe { el.SetFocus() }.is_ok() {
+                return true;
+            }
+            cur = unsafe { walker.GetParentElement(&el).ok() };
+        }
+        false
+    })
+    .unwrap_or(true) // timed out: a control that blocks in Invoke has most likely opened a dialog
+}
+
+/// Scrolls the nearest scrollable control under a physical screen point by `amount` steps
+/// (positive = down) through its ScrollPattern. Returns true if one accepted.
+pub fn scroll_at_physical(px: i32, py: i32, amount: i32) -> bool {
+    with_timeout(1500, move || {
+        let Some(uia) = automation() else { return false };
+        let Some(start) = (unsafe { uia.ElementFromPoint(POINT { x: px, y: py }).ok() }) else { return false };
+        let Some(walker) = (unsafe { uia.ControlViewWalker().ok() }) else { return false };
+        let mut cur = Some(start);
+        for _ in 0..12 {
+            let Some(el) = cur else { break };
+            if let Ok(p) = unsafe { el.GetCurrentPatternAs::<IUIAutomationScrollPattern>(UIA_ScrollPatternId) } {
+                let can_v = unsafe { p.CurrentVerticallyScrollable() }.map(|b| b.as_bool()).unwrap_or(false);
+                if can_v {
+                    let dir = if amount >= 0 { ScrollAmount_SmallIncrement } else { ScrollAmount_SmallDecrement };
+                    let mut moved = false;
+                    for _ in 0..amount.unsigned_abs().min(30) {
+                        if unsafe { p.Scroll(ScrollAmount_NoAmount, dir) }.is_ok() {
+                            moved = true;
+                        }
+                    }
+                    if moved {
+                        return true;
+                    }
+                }
+            }
+            cur = unsafe { walker.GetParentElement(&el).ok() };
+        }
+        false
+    })
+    .unwrap_or(false)
 }

@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Manager;
 use windows::core::{BOOL, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
@@ -667,36 +667,6 @@ pub fn glide_ms_logical(from: (f64, f64), to: (f64, f64)) -> u64 {
     (260.0 + d * 0.30).clamp(300.0, 720.0) as u64
 }
 
-fn ease_in_out_cubic(t: f64) -> f64 {
-    if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
-}
-
-/// Moves the real pointer to a logical point along the same eased path the overlay draws, and
-/// returns when it has arrived. (The overlay animates the same curve over the same duration.)
-pub fn glide_pointer_logical(x: f64, y: f64, ms: u64) {
-    let s = primary_scale();
-    let (tx, ty) = (x * s, y * s);
-    let Some((fx, fy)) = cursor_pos() else {
-        unsafe {
-            let _ = SetCursorPos(tx.round() as i32, ty.round() as i32);
-        }
-        return;
-    };
-    let (fx, fy) = (fx as f64, fy as f64);
-    let start = std::time::Instant::now();
-    loop {
-        let t = (start.elapsed().as_millis() as f64 / ms.max(1) as f64).min(1.0);
-        let e = ease_in_out_cubic(t);
-        unsafe {
-            let _ = SetCursorPos((fx + (tx - fx) * e).round() as i32, (fy + (ty - fy) * e).round() as i32);
-        }
-        if t >= 1.0 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(6));
-    }
-}
-
 /* =========================================================
    Diagnostics + Settings click-away
    ========================================================= */
@@ -867,20 +837,81 @@ fn cursor_pos() -> Option<(i32, i32)> {
     unsafe { GetCursorPos(&mut p) }.ok().map(|_| (p.x, p.y))
 }
 
-/// Moves the real pointer, clicks, and puts the pointer back where the user had it.
-/// (Windows has no per-process input, so `real` makes no difference here.)
-pub fn mouse_click(x: f64, y: f64, right: bool, double: bool, _real: bool) -> Result<(), String> {
-    let (px, py) = to_physical(x, y);
-    let target = unsafe {
-        let h = WindowFromPoint(POINT { x: px, y: py });
-        if h.0.is_null() { h } else { GetAncestor(h, GA_ROOT) }
+/// Windows classes of apps that draw their own UI and ignore posted mouse messages (Chrome, Edge,
+/// Electron apps, Firefox): for these the real-input fallback is the only way to reach a bare spot.
+fn is_self_drawn(hwnd: HWND) -> bool {
+    let c = window_class(hwnd);
+    c.starts_with("Chrome_") || c.starts_with("Mozilla") || c.contains("Electron") || c.starts_with("Intermediate D3D")
+}
+
+fn make_lparam(x: i32, y: i32) -> LPARAM {
+    LPARAM((((y as u32 & 0xFFFF) << 16) | (x as u32 & 0xFFFF)) as isize)
+}
+
+/// The innermost child window at a screen point, plus the point in that window's client coordinates.
+fn child_at(px: i32, py: i32) -> Option<(HWND, i32, i32)> {
+    use windows::Win32::Graphics::Gdi::ScreenToClient;
+    use windows::Win32::UI::WindowsAndMessaging::{ChildWindowFromPointEx, CWP_SKIPINVISIBLE, CWP_SKIPTRANSPARENT};
+    unsafe {
+        let mut hwnd = WindowFromPoint(POINT { x: px, y: py });
+        if hwnd.0.is_null() {
+            return None;
+        }
+        for _ in 0..8 {
+            let mut p = POINT { x: px, y: py };
+            if !ScreenToClient(hwnd, &mut p).as_bool() {
+                break;
+            }
+            let child = ChildWindowFromPointEx(hwnd, p, CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT);
+            if child.0.is_null() || child == hwnd {
+                break;
+            }
+            hwnd = child;
+        }
+        let mut p = POINT { x: px, y: py };
+        if !ScreenToClient(hwnd, &mut p).as_bool() {
+            return None;
+        }
+        Some((hwnd, p.x, p.y))
+    }
+}
+
+const MK_LBUTTON: usize = 0x0001;
+const MK_RBUTTON: usize = 0x0002;
+
+/// Posts a click straight to the window under a point (the real pointer never moves).
+fn post_click(px: i32, py: i32, right: bool, double: bool) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        PostMessageW, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+        WM_RBUTTONDOWN, WM_RBUTTONUP,
     };
-    check_controllable(target)?;
+    let Some((hwnd, cx, cy)) = child_at(px, py) else { return false };
+    if is_self_drawn(hwnd) {
+        return false;
+    }
+    let lp = make_lparam(cx, cy);
+    unsafe {
+        let _ = PostMessageW(Some(hwnd), WM_MOUSEMOVE, WPARAM(0), lp);
+        if right {
+            let _ = PostMessageW(Some(hwnd), WM_RBUTTONDOWN, WPARAM(MK_RBUTTON), lp);
+            let _ = PostMessageW(Some(hwnd), WM_RBUTTONUP, WPARAM(0), lp);
+        } else {
+            let _ = PostMessageW(Some(hwnd), WM_LBUTTONDOWN, WPARAM(MK_LBUTTON), lp);
+            let _ = PostMessageW(Some(hwnd), WM_LBUTTONUP, WPARAM(0), lp);
+            if double {
+                let _ = PostMessageW(Some(hwnd), WM_LBUTTONDBLCLK, WPARAM(MK_LBUTTON), lp);
+                let _ = PostMessageW(Some(hwnd), WM_LBUTTONUP, WPARAM(0), lp);
+            }
+        }
+    }
+    true
+}
 
+/// Last resort: move the real pointer, click, and put the pointer straight back.
+fn real_click(px: i32, py: i32, right: bool, double: bool) -> Result<(), String> {
+    let original = cursor_pos();
     unsafe { SetCursorPos(px, py) }.map_err(|_| "Couldn't move the pointer.".to_string())?;
-    *LAST_POINT.lock().unwrap() = Some((px, py));
     std::thread::sleep(Duration::from_millis(40));
-
     let (down, up) = if right {
         (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP)
     } else {
@@ -892,8 +923,34 @@ pub fn mouse_click(x: f64, y: f64, right: bool, double: bool, _real: bool) -> Re
         send(&[mouse_input(up, 0)])?;
         std::thread::sleep(Duration::from_millis(25));
     }
-
+    if let Some((ox, oy)) = original {
+        std::thread::sleep(Duration::from_millis(60));
+        unsafe {
+            let _ = SetCursorPos(ox, oy);
+        }
+    }
     Ok(())
+}
+
+/// Clicks at a point on the 0-1000 grid WITHOUT using the user's mouse: first by asking the control
+/// itself (UI Automation), then by posting the click to its window. Only if neither can reach it
+/// (a bare spot in a browser page, say) is the real pointer borrowed for a moment and put back.
+pub fn mouse_click(x: f64, y: f64, right: bool, double: bool, _real: bool) -> Result<(), String> {
+    let (px, py) = to_physical(x, y);
+    let target = unsafe {
+        let h = WindowFromPoint(POINT { x: px, y: py });
+        if h.0.is_null() { h } else { GetAncestor(h, GA_ROOT) }
+    };
+    check_controllable(target)?;
+    *LAST_POINT.lock().unwrap() = Some((px, py));
+
+    if !right && super::ax::click_at_physical(px, py, double) {
+        return Ok(());
+    }
+    if post_click(px, py, right, double) {
+        return Ok(());
+    }
+    real_click(px, py, right, double)
 }
 
 /// Types text as real Unicode keystrokes into whatever has focus (works for every language,
@@ -1025,30 +1082,44 @@ pub fn press_key(key: &str, modifiers: &[String], _real: bool) -> Result<(), Str
 }
 
 /// Positive `amount` scrolls down (like the macOS side). Scrolls over the spot the agent last
-/// clicked, or the middle of the app window if it hasn't clicked yet.
+/// clicked, or the middle of the app window if it has not clicked yet. The real pointer stays put:
+/// first the control's own scroll pattern, then a posted wheel message, then real input.
 pub fn scroll(amount: i32, _real: bool) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_MOUSEWHEEL};
     let spot = (*LAST_POINT.lock().unwrap()).or_else(|| {
         let hwnd = target_window()?;
         let mut r = RECT::default();
         unsafe { GetWindowRect(hwnd, &mut r) }.ok()?;
         Some(((r.left + r.right) / 2, (r.top + r.bottom) / 2))
     });
-    if let Some((x, y)) = spot {
-        let target = unsafe {
-            let h = WindowFromPoint(POINT { x, y });
-            if h.0.is_null() { h } else { GetAncestor(h, GA_ROOT) }
-        };
-        check_controllable(target)?;
-    }
+    let Some((x, y)) = spot else { return Err("Nothing to scroll.".to_string()) };
+    let target = unsafe {
+        let h = WindowFromPoint(POINT { x, y });
+        if h.0.is_null() { h } else { GetAncestor(h, GA_ROOT) }
+    };
+    check_controllable(target)?;
 
-    let original = cursor_pos();
-    if let Some((x, y)) = spot {
-        unsafe {
-            let _ = SetCursorPos(x, y);
-        }
-        std::thread::sleep(Duration::from_millis(30));
+    if super::ax::scroll_at_physical(x, y, amount) {
+        return Ok(());
     }
     // One "line" is 120 wheel units; the wheel is positive-up, the agent's amount positive-down.
+    let delta = (-amount * 120) as i16;
+    if let Some((hwnd, _, _)) = child_at(x, y) {
+        if !is_self_drawn(hwnd) {
+            let wparam = WPARAM(((delta as u16) as usize) << 16);
+            let lparam = make_lparam(x, y);
+            unsafe {
+                let _ = PostMessageW(Some(hwnd), WM_MOUSEWHEEL, wparam, lparam);
+            }
+            return Ok(());
+        }
+    }
+    // Browsers and other self-drawn apps: borrow the real pointer for a moment.
+    let original = cursor_pos();
+    unsafe {
+        let _ = SetCursorPos(x, y);
+    }
+    std::thread::sleep(Duration::from_millis(30));
     let result = send(&[mouse_input(MOUSEEVENTF_WHEEL, -amount * 120)]);
     if let Some((ox, oy)) = original {
         std::thread::sleep(Duration::from_millis(60));
