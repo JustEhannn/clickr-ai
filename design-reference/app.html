@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Clickr (reference)</title>
     <script>
+      // Inside the gallery, a scene must never grab focus, because that makes the whole page jump.
+      (function () {
+        var f = HTMLElement.prototype.focus;
+        HTMLElement.prototype.focus = function (o) { return f.call(this, Object.assign({}, o, { preventScroll: true })); };
+        window.focus = function () {};
+      })();
       // Pretend this person has already finished the tour and the Agent Mode notice,
       // (the tour scene uses a separate fake account that has not).
       (function () {

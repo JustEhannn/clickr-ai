@@ -42,6 +42,11 @@
     background: radial-gradient(1200px 500px at 20% 0%, #3a5a8c 0%, transparent 60%), radial-gradient(900px 500px at 90% 100%, #7a4f6d 0%, transparent 55%), linear-gradient(135deg,#243b55,#141e30); }
   .desk.dark { background: radial-gradient(900px 500px at 20% 0%, #1f2b47 0%, transparent 60%), linear-gradient(135deg,#0f1420,#05060A); }
   .desk.light { background: linear-gradient(135deg,#e9edf5,#cfd8e8); }
+  .frame { position:relative; }
+  .frame .shield { position:absolute; inset:0; z-index:2; display:flex; align-items:flex-end; justify-content:center; padding-bottom:10px; cursor:pointer; }
+  .frame .shield span { font-size:11px; color:rgba(255,255,255,.75); background:rgba(0,0,0,.45); padding:3px 10px; border-radius:99px; opacity:0; transition:opacity .15s; }
+  .frame:hover .shield span { opacity:1; }
+  .frame.live .shield { display:none; }
   iframe { border:0; background:transparent; display:block; max-width:100%; }
   .scene { margin-top:28px; }
   .scene .cap { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:baseline; margin-bottom:10px; }
@@ -99,40 +104,40 @@
   <p class="sub">Each window below is exactly the size it has on a Mac.</p>
 
   <div class="scene"><div class="cap"><h3>1. The pill (idle)<span class="tag">main window</span></h3><span>Opens with a keyboard shortcut (⌘ ⇧ Space). Type a question and press Return. "Assist" (⌘ Return) looks at your screen first.</span></div>
-    <div class="desk"><iframe src="app.html" width="680" height="330" title="Pill"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html" width="680" height="330" title="Pill"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>2. A screen-aware answer</h3><span>Clickr looked at the screen and streams its reply.</span></div>
-    <div class="desk"><iframe src="app.html?demo=chat" width="680" height="640" title="Chat"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?demo=chat" width="680" height="640" title="Chat"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>3. First-run guide</h3><span>A short tour shown once after sign-in.</span></div>
-    <div class="desk"><iframe src="app.html?demo=tour" width="680" height="520" title="Tour"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?demo=tour" width="680" height="520" title="Tour"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>4. Permission needed</h3><span>Before it can see the screen, macOS asks the person to switch Clickr on in System Settings.</span></div>
-    <div class="desk"><iframe src="app.html?demo=perm" width="680" height="520" title="Permissions"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?demo=perm" width="680" height="520" title="Permissions"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>5. Sign in</h3><span>360 × 410. Sign-in opens in the browser; this window waits.</span></div>
-    <div class="desk"><iframe src="app.html?window=auth" width="360" height="410" title="Sign in"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?window=auth" width="360" height="410" title="Sign in"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>6. Settings</h3><span>340 × 640, scrolls. Includes Custom AI models, Memory, Agent Mode options, Shortcuts, Software update, Support.</span></div>
-    <div class="desk"><iframe src="app.html?window=settings" width="340" height="640" title="Settings"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?window=settings" width="340" height="640" title="Settings"></iframe></div></div>
 
   <div class="scene"><div class="cap"><h3>7. Report a bug</h3><span>380 × 470.</span></div>
-    <div class="desk"><iframe src="app.html?window=bug" width="380" height="470" title="Bug report"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?window=bug" width="380" height="470" title="Bug report"></iframe></div></div>
 
   <h2 id="plans">Plans and upgrade prompts</h2>
   <p class="sub">Three plans: <b>Free</b>, <b>Pro</b> ($9.99/mo, $7.99 billed yearly), <b>Pro+</b> ($19.99/mo, $16.99 billed yearly). Locked features show an upgrade window like this one.</p>
   <div class="scene"><div class="cap"><h3>8. Pricing window</h3><span>Monthly / Annual switch, "Save up to 20%".</span></div>
-    <div class="desk"><iframe src="app.html?demo=pricing&tier=free" width="680" height="760" title="Pricing"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?demo=pricing&tier=free" width="680" height="760" title="Pricing"></iframe></div></div>
   <div class="scene"><div class="cap"><h3>9. Free plan limit reached</h3><span>Automatic reply with an Upgrade button.</span></div>
-    <div class="desk"><iframe src="app.html?demo=limit&tier=free" width="680" height="520" title="Limit"></iframe></div></div>
+    <div class="desk"><iframe data-src="app.html?demo=limit&tier=free" width="680" height="520" title="Limit"></iframe></div></div>
 
   <h2 id="agent">Agent Mode (top plan only)</h2>
   <p class="sub">While Agent Mode works, the chat hides itself. A small status pill and Clickr's own blue cursor remain so you can watch every move.</p>
   <div class="grid g2">
     <div class="scene"><div class="cap"><h3>10. Status bar, working<span class="tag">560 × 52</span></h3></div>
-      <div class="desk"><iframe src="app.html?window=agentbar&demo=agentbar" width="560" height="52" title="Agent bar"></iframe></div></div>
+      <div class="desk"><iframe data-src="app.html?window=agentbar&demo=agentbar" width="560" height="52" title="Agent bar"></iframe></div></div>
     <div class="scene"><div class="cap"><h3>11. Status bar, asking permission<span class="tag">560 × 52</span></h3></div>
-      <div class="desk"><iframe src="app.html?window=agentbar&demo=agentask" width="560" height="52" title="Agent approval"></iframe></div></div>
+      <div class="desk"><iframe data-src="app.html?window=agentbar&demo=agentask" width="560" height="52" title="Agent approval"></iframe></div></div>
   </div>
 
   <div class="scene"><div class="cap"><h3>12. Agent cursor<span class="tag">transparent overlay</span></h3><span>Clickr's own blue cursor glides to each target and ripples when it clicks, with a small label. The person's real mouse never moves. (Replays on reload.)</span></div>
@@ -140,7 +145,7 @@
       <div style="height:34px;background:#e3e5ea;display:flex;align-items:center;gap:7px;padding:0 12px"><i style="width:11px;height:11px;border-radius:50%;background:#ff5f57"></i><i style="width:11px;height:11px;border-radius:50%;background:#febc2e"></i><i style="width:11px;height:11px;border-radius:50%;background:#28c840"></i><span style="margin-left:14px;color:#555;font-size:12px">Quarterly report — Numbers</span></div>
       <div style="padding:22px;color:#333;font-size:13px">Revenue by quarter<div style="margin-top:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px"><div style="background:#fff;border-radius:8px;padding:12px;height:70px">Q1</div><div style="background:#fff;border-radius:8px;padding:12px">Q2</div><div style="background:#fff;border-radius:8px;padding:12px">Q3</div><div style="background:#fff;border-radius:8px;padding:12px">Q4</div></div>
       <div style="position:absolute;left:290px;top:150px;background:#3C83F5;color:#fff;padding:7px 14px;border-radius:7px;font-size:12px">Export</div></div>
-      <iframe src="app.html?window=cursor&demo=cursor" width="560" height="300" style="position:absolute;inset:0" title="Agent cursor"></iframe>
+      <iframe data-src="app.html?window=cursor&demo=cursor" width="560" height="300" style="position:absolute;inset:0" title="Agent cursor"></iframe>
     </div></div></div>
 
   <h2>Plan comparison</h2>
@@ -153,5 +158,25 @@
 
   <footer>Reference build · Clickr 0.1.1 · fake data only</footer>
 </main>
+<script>
+  // Each scene is a whole running copy of the app. Only keep the ones near the screen alive,
+  // and keep them from catching the mouse wheel until you click one (so the page scrolls smoothly).
+  document.querySelectorAll("iframe[data-src]").forEach(function (f) {
+    var w = document.createElement("div");
+    w.className = "frame"; w.style.width = f.getAttribute("width") + "px"; w.style.maxWidth = "100%"; w.style.height = f.getAttribute("height") + "px";
+    f.parentNode.insertBefore(w, f); w.appendChild(f);
+    var sh = document.createElement("div"); sh.className = "shield"; sh.innerHTML = "<span>Click to interact</span>"; w.appendChild(sh);
+    sh.addEventListener("click", function () { w.classList.add("live"); });
+    w.addEventListener("mouseleave", function () { w.classList.remove("live"); });
+  });
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      var f = e.target.querySelector("iframe");
+      if (e.isIntersecting) { if (!f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
+      else if (f.getAttribute("src")) { f.removeAttribute("src"); f.src = "about:blank"; f.removeAttribute("src"); }
+    });
+  }, { rootMargin: "500px 0px" });
+  document.querySelectorAll(".frame").forEach(function (w) { io.observe(w); });
+</script>
 </body>
 </html>
