@@ -15,3 +15,8 @@ src-tauri/gen/
 
 # Secrets
 .envsupabase/.temp/
+
+# Generated reference package
+design-reference/Clickr-Design-Reference/
+design-reference/Clickr-Design-Reference.zip
+design-reference/site/

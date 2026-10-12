@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clickr (reference)</title>
+    <script>
+      // Pretend this person has already finished the tour and the Agent Mode notice,
+      // (the tour scene uses a separate fake account that has not).
+      (function () {
+        var q = new URLSearchParams(location.search);
+        try {
+          var id = q.get("demo") === "tour" ? "demo-tour" : "demo-user";
+          if (id === "demo-user") localStorage.setItem("clickr-onboarding-complete:demo-user", "true");
+          localStorage.setItem("clickr-agent-beta-ack:" + id, "true");
+          localStorage.removeItem("clickr-chat-history:" + id);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/design-reference/demo-driver.ts"></script>
+  </body>
+</html>
