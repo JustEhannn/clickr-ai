@@ -7,6 +7,57 @@
 > 4. Never print, commit, or paste secrets. You do not need any to build.
 > 5. Before merging to `main`, the owner (or a Mac) must run `cargo check` + `npm run build` on macOS to prove the Mac build still compiles and runs.
 
+## Port status (kept up to date; last pass: publish-readiness)
+
+**Done and verified on Windows 11 (see the git log on the `windows` branch / PR #1)**
+- Builds: `cargo check`, `npm run build`, `tauri build` (NSIS installer), full `release-windows.ps1` DRY_RUN.
+- Native layer (`platform/windows.rs`): screen capture excluding Clickr (per display, with a 4 s timeout so a bad
+  virtual monitor can never hang the chat), active-window info, SendInput mouse / Unicode typing / key combos /
+  scroll, admin-window detection, DPI-aware 0-1000 grid, click-through for the transparent pill, Recycle Bin.
+- Agent Mode: UI Automation tree (`platform/uia.rs`); press / type / click / scroll verified end to end against a
+  throwaway test window; Cmd/Ctrl+Q and Alt+F4 blocked; status bar window fixed.
+- Windows-only fixes for real bugs found by testing the release build: app-wide freeze when creating or closing
+  windows from sync commands, hung all-displays capture, clipped agent bar, `clickr://` not registered for a bare
+  exe, translucent panels, Arial fallback font, default scrollbars, tool-window style reset by tao.
+- Polish: bundled Inter font, dark scrollbars, solid panels, entrance animation, no browser menus or shortcuts,
+  tray icon (colour, tooltip, left-click toggles), startup survives a taken hotkey, auth window in the taskbar,
+  UI scale 1.0 (tunable with a number in `ui-zoom.txt` inside `%APPDATA%\net.getclickr.app`).
+- Installer: per-user NSIS, Start-menu entry, `clickr://`, clean uninstall (stops the app, removes the login entry
+  and the scheme). Open-at-login (autostart) verified.
+- Separate update feed `latest-windows.json`, so Mac and Windows releases never overwrite each other.
+
+**Still needs a human (not possible from the dev PC)**
+1. **Code-signing certificate** (Azure Trusted Signing or an OV/EV cert), then set `CLICKR_CERT_THUMBPRINT` or
+   `CLICKR_SIGN_COMMAND` for `release-windows.ps1`. Until then SmartScreen warns on first run.
+2. **First real release:** copy the update-signing key to `~/.tauri/clickr-updater.key`, run
+   `release-windows.ps1`, install that build, publish the next version and confirm the in-app update installs.
+3. **macOS check of this branch** before merging: `cargo check`, `npm run build`, launch and run one chat.
+4. **Website** (separate repo, see "Website tasks" below).
+5. **Hand tests** that need a person at the PC: summon hotkey over full-screen apps, drag + remembered pill
+   position, drop / paste an image and a PDF, 125% / 150% / 200% display scaling, a second monitor, Stripe
+   upgrade flow opening the browser, Google + email sign-in round trip, sign-out clears the Credential Manager
+   entry, Agent Mode in a real browser / File Explorer, Stop button mid-run, admin-window message.
+
+**Known limits:** Agent Mode and the cursor overlay use the primary display only; x64 build (ARM64 PCs run it
+under emulation); screen-capture exclusion needs Windows 10 version 2004 or later; WebView2 draws text with
+grayscale anti-aliasing in transparent windows.
+
+## Website tasks (repo `getclickr`, Next.js on Vercel)
+- `app/download/windows/route.ts` (mirror `app/download/mac/route.ts`):
+  ```ts
+  import { NextResponse } from "next/server";
+  export const dynamic = "force-dynamic";
+  export function GET() {
+    return NextResponse.redirect(
+      "https://xoebvsthsmrnuusduzfg.supabase.co/storage/v1/object/public/releases/Clickr-latest-setup.exe",
+      302,
+    );
+  }
+  ```
+- Enable the disabled Windows card in `app/download/page.tsx` and the Windows option in `components/Hero.tsx`
+  (link to `/download/windows`), update the FAQ ("Is there a Windows version?") and `lib/status.ts`.
+- Mention the SmartScreen "More info, then Run anyway" step on the Windows card until the app is signed.
+
 Read this first, then README.md and RELEASING.md. The Mac app is finished and released (0.1.1);
 the Windows port is the next project. The React/TypeScript UI, the Supabase backend, accounts,
 billing, tiers and the update feed are shared. Only the native layer differs.
