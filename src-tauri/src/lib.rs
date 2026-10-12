@@ -700,7 +700,7 @@ pub fn open_signin_window(app: tauri::AppHandle) {
         .transparent(true)
         .shadow(false)
         .always_on_top(true)
-        .skip_taskbar(true)
+        .skip_taskbar(!cfg!(windows))
         .center()
         .visible(true)
         .focused(true)
@@ -1642,11 +1642,22 @@ pub fn run() {
                     .parse()
                     .unwrap();
 
-            app.global_shortcut()
-                .register(toggle)?;
-
-            app.global_shortcut()
-                .register(assist)?;
+            #[cfg(not(windows))]
+            {
+                app.global_shortcut().register(toggle)?;
+                app.global_shortcut().register(assist)?;
+            }
+            // Windows: a hotkey another app already owns must not stop Clickr from starting
+            // (the tray icon still works, and the shortcut can be changed in Settings).
+            #[cfg(windows)]
+            {
+                if let Err(e) = app.global_shortcut().register(toggle) {
+                    eprintln!("Couldn't register the show/hide shortcut: {e}");
+                }
+                if let Err(e) = app.global_shortcut().register(assist) {
+                    eprintln!("Couldn't register the assist shortcut: {e}");
+                }
+            }
 
             let show_hide =
                 MenuItem::with_id(
@@ -1689,6 +1700,11 @@ pub fn run() {
                     app,
                     &[&show_hide, &settings_item, &report_item, &quit],
                 )?;
+            // The macOS tray image is a white template glyph; on Windows it would vanish on a light
+            // taskbar, so use the full-colour app icon there.
+            #[cfg(windows)]
+            let tray_icon_bytes = include_bytes!("../icons/64x64.png");
+            #[cfg(not(windows))]
             let tray_icon_bytes = include_bytes!("../icons/tray-icon.png");
             let tray_icon_image = image::load_from_memory(tray_icon_bytes)
                 .map_err(|e| e.to_string())?
@@ -1700,7 +1716,7 @@ pub fn run() {
                 tray_icon_width,
                 tray_icon_height,
             );
-            TrayIconBuilder::new()
+            let tray_builder = TrayIconBuilder::new()
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .menu(&menu)
@@ -1716,11 +1732,22 @@ pub fn run() {
                         let _ = open_bug_report(app.clone());
                     }
                     "quit" => {
-                        app.exit(0);
-                    }
+                    app.exit(0);
+                }
                     _ => {}
-                })
-                .build(app)?;
+                });
+            // Windows convention: left-click toggles the pill, right-click opens the menu.
+            #[cfg(windows)]
+            let tray_builder = tray_builder
+                .tooltip("Clickr AI")
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        toggle_window(tray.app_handle());
+                    }
+                });
+            tray_builder.build(app)?;
 
              #[cfg(target_os = "macos")]
              {

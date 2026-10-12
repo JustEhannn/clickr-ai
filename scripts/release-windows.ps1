@@ -22,11 +22,34 @@ $DryRun = $env:DRY_RUN -eq "1"
 
 if (-not (Test-Path $KeyPath)) { throw "Signing key not found at $KeyPath" }
 
+# Optional Authenticode signing (removes the SmartScreen warning). Install the certificate in your
+# Windows certificate store and set CLICKR_CERT_THUMBPRINT to its SHA-1 thumbprint; for cloud signing
+# (Azure Trusted Signing etc.) set CLICKR_SIGN_COMMAND to the command, with %1 for the file.
+$extra = @()
+if ($env:CLICKR_CERT_THUMBPRINT -or $env:CLICKR_SIGN_COMMAND) {
+  $signCfg = Join-Path ([System.IO.Path]::GetTempPath()) "clickr-signing.conf.json"
+  if ($env:CLICKR_SIGN_COMMAND) {
+    $win = @{ signCommand = $env:CLICKR_SIGN_COMMAND }
+  } else {
+    $win = @{ certificateThumbprint = $env:CLICKR_CERT_THUMBPRINT; digestAlgorithm = "sha256"; timestampUrl = "http://timestamp.digicert.com" }
+  }
+  @{ bundle = @{ windows = $win } } | ConvertTo-Json -Depth 6 | Set-Content $signCfg -Encoding utf8
+  $extra = @("--config", $signCfg)
+  Write-Host "==> Code signing is ON"
+} else {
+  Write-Host "==> No code-signing certificate configured: Windows SmartScreen will warn on first run"
+}
+
 Write-Host "==> Building Clickr $Version for Windows (NSIS installer)"
 $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $KeyPath -Raw)
 if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "" }
-npm run tauri build -- --bundles nsis
-if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
+# Windows PowerShell 5.1 turns anything a native tool writes to stderr (Tauri prints plain "Info" lines
+# there) into a terminating error under $ErrorActionPreference=Stop, so relax it just for this call.
+$ErrorActionPreference = "Continue"
+npm run tauri build -- --bundles nsis @extra 2>&1 | ForEach-Object { "$_" }
+$buildExit = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+if ($buildExit -ne 0) { throw "tauri build failed (exit $buildExit)" }
 
 $Out = "src-tauri\target\release\bundle\nsis"
 $Installer = Get-ChildItem $Out -Filter "*_${Version}_x64-setup.exe" | Select-Object -First 1
@@ -63,9 +86,12 @@ if ($DryRun) {
 
 # Storage refuses to overwrite, so "always the newest" files are removed right before re-uploading.
 function Up($src, $dest, $cache) {
+  $ErrorActionPreference = "Continue"   # supabase prints progress on stderr
   npx supabase storage rm "ss:///releases/$dest" --linked --experimental --yes *> $null
   npx supabase storage cp $src "ss:///releases/$dest" --linked --experimental --cache-control $cache *> $null
-  if ($LASTEXITCODE -ne 0) { throw "UPLOAD FAILED: $dest" }
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = "Stop"
+  if ($code -ne 0) { throw "UPLOAD FAILED: $dest" }
   Write-Host "   uploaded $dest"
 }
 
