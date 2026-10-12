@@ -651,6 +651,101 @@ pub fn request_accessibility() -> bool {
 }
 
 /* =========================================================
+   Smooth pointer movement (Agent Mode)
+   ========================================================= */
+
+/// Current pointer position in logical points.
+pub fn pointer_pos_logical() -> Option<(f64, f64)> {
+    let (x, y) = cursor_pos()?;
+    let s = primary_scale();
+    Some((x as f64 / s, y as f64 / s))
+}
+
+/// How long a glide between two logical points takes: quick for short hops, never abrupt.
+pub fn glide_ms_logical(from: (f64, f64), to: (f64, f64)) -> u64 {
+    let d = ((to.0 - from.0).powi(2) + (to.1 - from.1).powi(2)).sqrt();
+    (260.0 + d * 0.30).clamp(300.0, 720.0) as u64
+}
+
+fn ease_in_out_cubic(t: f64) -> f64 {
+    if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
+}
+
+/// Moves the real pointer to a logical point along the same eased path the overlay draws, and
+/// returns when it has arrived. (The overlay animates the same curve over the same duration.)
+pub fn glide_pointer_logical(x: f64, y: f64, ms: u64) {
+    let s = primary_scale();
+    let (tx, ty) = (x * s, y * s);
+    let Some((fx, fy)) = cursor_pos() else {
+        unsafe {
+            let _ = SetCursorPos(tx.round() as i32, ty.round() as i32);
+        }
+        return;
+    };
+    let (fx, fy) = (fx as f64, fy as f64);
+    let start = std::time::Instant::now();
+    loop {
+        let t = (start.elapsed().as_millis() as f64 / ms.max(1) as f64).min(1.0);
+        let e = ease_in_out_cubic(t);
+        unsafe {
+            let _ = SetCursorPos((fx + (tx - fx) * e).round() as i32, (fy + (ty - fy) * e).round() as i32);
+        }
+        if t >= 1.0 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(6));
+    }
+}
+
+/* =========================================================
+   Diagnostics + Settings click-away
+   ========================================================= */
+
+/// Appends a line to the clickr.log file inside the net.getclickr.app folder under %APPDATA% (kept
+/// under ~256 KB). Used to see whether hotkey presses arrive when someone reports "nothing happens".
+pub fn log_line(msg: &str) {
+    use std::io::Write;
+    let Some(dir) = std::env::var_os("APPDATA").map(|d| std::path::PathBuf::from(d).join("net.getclickr.app")) else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("clickr.log");
+    if std::fs::metadata(&path).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
+        let _ = std::fs::remove_file(&path);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = writeln!(f, "[{secs}] {msg}");
+    }
+}
+
+/// Settings closes when you click away from it. Windows reports "lost focus" the moment you start
+/// dragging the window by its header, so instead of closing at once, wait until the pointer is
+/// really outside the window (or the window got its focus back).
+pub fn close_when_clicked_away(window: tauri::WebviewWindow) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd = HWND(hwnd.0);
+    for _ in 0..600 {
+        std::thread::sleep(Duration::from_millis(100));
+        if window.is_visible().is_err() {
+            return; // already closed
+        }
+        if window.is_focused().unwrap_or(false) {
+            return; // focus came back (e.g. after a drag)
+        }
+        let mut rect = RECT::default();
+        let mut p = POINT::default();
+        let inside = unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok()
+            && unsafe { GetCursorPos(&mut p) }.is_ok()
+            && p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom;
+        let pressed = unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } as u16 & 0x8000 != 0;
+        if !inside && !pressed {
+            let _ = window.close();
+            return;
+        }
+    }
+}
+
+/* =========================================================
    Input (Agent Mode)
    ========================================================= */
 
@@ -782,7 +877,6 @@ pub fn mouse_click(x: f64, y: f64, right: bool, double: bool, _real: bool) -> Re
     };
     check_controllable(target)?;
 
-    let original = cursor_pos();
     unsafe { SetCursorPos(px, py) }.map_err(|_| "Couldn't move the pointer.".to_string())?;
     *LAST_POINT.lock().unwrap() = Some((px, py));
     std::thread::sleep(Duration::from_millis(40));
@@ -799,12 +893,6 @@ pub fn mouse_click(x: f64, y: f64, right: bool, double: bool, _real: bool) -> Re
         std::thread::sleep(Duration::from_millis(25));
     }
 
-    if let Some((ox, oy)) = original {
-        std::thread::sleep(Duration::from_millis(60));
-        unsafe {
-            let _ = SetCursorPos(ox, oy);
-        }
-    }
     Ok(())
 }
 

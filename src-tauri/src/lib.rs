@@ -562,7 +562,17 @@ fn open_settings_impl(app: tauri::AppHandle) -> Result<(), String> {
                 // been open for a moment, so a real click elsewhere
                 // is what triggers this, not creation noise.
                 if opened_at.elapsed() > std::time::Duration::from_millis(300) {
-                    let _ = window_for_event.close();
+                    // Windows also reports "lost focus" when you start dragging the window by its
+                    // header, so there it waits until the pointer is really outside the window.
+                    #[cfg(windows)]
+                    {
+                        let w = window_for_event.clone();
+                        std::thread::spawn(move || platform::close_when_clicked_away(w));
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        let _ = window_for_event.close();
+                    }
                 }
             }
         });
@@ -1508,6 +1518,11 @@ pub fn run() {
                         };
 
                         
+                        #[cfg(windows)]
+                        platform::log_line(&format!(
+                            "hotkey pressed: assist={is_assist} toggle={is_toggle} agent_hidden={}",
+                            agent_hidden()
+                        ));
                         if is_assist {
                             let _ =
                                 app.emit(
@@ -1653,9 +1668,11 @@ pub fn run() {
             {
                 if let Err(e) = app.global_shortcut().register(toggle) {
                     eprintln!("Couldn't register the show/hide shortcut: {e}");
+                    platform::log_line(&format!("show/hide shortcut NOT registered: {e}"));
                 }
                 if let Err(e) = app.global_shortcut().register(assist) {
                     eprintln!("Couldn't register the assist shortcut: {e}");
+                    platform::log_line(&format!("assist shortcut NOT registered: {e}"));
                 }
             }
 
@@ -1796,6 +1813,7 @@ pub fn run() {
                 agent::agent_exec,
                 agent::agent_cursor_show,
                 agent::agent_cursor_hide,
+                agent::agent_pointer_pos,
                 agent::agent_tool_needs_screen,
                 agent::check_accessibility,
                 agent::request_accessibility,
