@@ -20,7 +20,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import PricingModal from "./PricingModal";
 import { agentBetaKey, onboardingKey } from "./storage";
 import { reportProblem } from "./bugReport";
-import { DEVICE_NAME, ENTER_KEY, MOD_KEY } from "./platform";
+import { DEVICE_NAME, ENTER_KEY, IS_WINDOWS, MOD_KEY } from "./platform";
+import Thumb from "./Thumb";
 import { canUse, canAttachFile, FILE_ACCEPT_ALL, type Feature, type Tier } from "./tiers";
 import {
   describeCall,
@@ -2461,7 +2462,11 @@ export default function App() {
                                   <span>{att.name}</span>
                                 </div>
                               ) : att.dataUrl ? (
-                                <img key={i} src={att.dataUrl} alt="Attached reference" className="user-bubble-image" />
+                                IS_WINDOWS ? (
+                                  <Thumb key={i} src={att.dataUrl} maxW={260} maxH={200} alt="Attached reference" className="user-bubble-image" />
+                                ) : (
+                                  <img key={i} src={att.dataUrl} alt="Attached reference" className="user-bubble-image" />
+                                )
                               ) : null,
                             )}
                             {message.text}
@@ -2789,7 +2794,7 @@ export default function App() {
                             <span>{att.name}</span>
                           </div>
                         ) : (
-                          <img src={att.dataUrl} alt="Attached reference" />
+                          IS_WINDOWS ? <Thumb src={att.dataUrl} maxW={176} maxH={100} alt="Attached reference" /> : <img src={att.dataUrl} alt="Attached reference" />
                         )}
                         {uploadProgress === null && (
                           <button

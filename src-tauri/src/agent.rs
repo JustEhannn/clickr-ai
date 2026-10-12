@@ -134,6 +134,24 @@ pub async fn agent_exec(app: AppHandle, name: String, args: Value, background: O
         .map_err(|e| format!("Action failed: {e}"))?
 }
 
+/// Windows: glide the on-screen agent cursor (and the real pointer, along the same eased path)
+/// to a point in logical screen coordinates, returning once it has arrived.
+#[cfg(windows)]
+fn glide_to(app: &AppHandle, gx: f64, gy: f64, move_real_pointer: bool) {
+    let (ox, oy, _, _) = crate::platform::main_display_bounds();
+    let from = crate::platform::pointer_pos_logical().unwrap_or((gx, gy));
+    let ms = crate::platform::glide_ms_logical(from, (gx, gy));
+    let _ = app.emit(
+        "agent-cursor",
+        json!({ "kind": "move", "x": gx - ox, "y": gy - oy, "label": "", "fromX": from.0 - ox, "fromY": from.1 - oy, "ms": ms }),
+    );
+    if move_real_pointer {
+        crate::platform::glide_pointer_logical(gx, gy, ms);
+    } else {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+}
+
 /// Tells the cursor overlay what the agent is doing so the user can watch it.
 fn cursor_event(app: &AppHandle, kind: &str, x: f64, y: f64, label: &str) {
     let _ = app.emit("agent-cursor", json!({ "kind": kind, "x": x, "y": y, "label": label }));
@@ -166,8 +184,13 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 }
             }
             // Glide the on-screen agent cursor to the target first, then click.
-            cursor_event(app, "move", sx - ox, sy - oy, "");
-            std::thread::sleep(std::time::Duration::from_millis(380));
+            #[cfg(windows)]
+            glide_to(app, sx, sy, true);
+            #[cfg(not(windows))]
+            {
+                cursor_event(app, "move", sx - ox, sy - oy, "");
+                std::thread::sleep(std::time::Duration::from_millis(380));
+            }
             cursor_event(app, "click", sx - ox, sy - oy, "");
             platform::mouse_click(x, y, right, double, real)?;
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -185,6 +208,12 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
             // Optionally focus a listed field first, in the same step.
             #[cfg(any(target_os = "macos", windows))]
             if let Some(id) = args.get("into_id").and_then(|v| v.as_f64()) {
+                #[cfg(windows)]
+                if let Some((gx, gy)) = platform::ax::element_center(id as usize) {
+                    let (ox, oy, _, _) = platform::main_display_bounds();
+                    glide_to(app, gx, gy, false);
+                    cursor_event(app, "click", gx - ox, gy - oy, "");
+                }
                 platform::ax::press_element(id as usize)?;
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
@@ -287,8 +316,13 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
                 }
                 if let Some((gx, gy)) = platform::ax::element_center(id) {
                     let (ox, oy, _, _) = platform::main_display_bounds();
-                    cursor_event(app, "move", gx - ox, gy - oy, "");
-                    std::thread::sleep(std::time::Duration::from_millis(380));
+                    #[cfg(windows)]
+                    glide_to(app, gx, gy, false);
+                    #[cfg(not(windows))]
+                    {
+                        cursor_event(app, "move", gx - ox, gy - oy, "");
+                        std::thread::sleep(std::time::Duration::from_millis(380));
+                    }
                     cursor_event(app, "click", gx - ox, gy - oy, "");
                 }
                 let result = platform::ax::press_element(id)?;
@@ -530,6 +564,19 @@ pub fn agent_cursor_show_impl(app: AppHandle) -> Result<(), String> {
         }
     })
     .map_err(|e| e.to_string())
+}
+
+/// Where the real pointer is, in logical points relative to the display (Windows only), so the
+/// overlay can start its first glide from there.
+#[tauri::command]
+pub fn agent_pointer_pos() -> Option<(f64, f64)> {
+    #[cfg(windows)]
+    {
+        let (ox, oy, _, _) = crate::platform::main_display_bounds();
+        return crate::platform::pointer_pos_logical().map(|(x, y)| (x - ox, y - oy));
+    }
+    #[cfg(not(windows))]
+    None
 }
 
 #[tauri::command]

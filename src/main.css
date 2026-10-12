@@ -3643,3 +3643,42 @@ html.is-windows button { -webkit-tap-highlight-color: transparent; }
   html.is-windows.panel-enter .cue-toolbar,
   html.is-windows.panel-enter .cue-panel { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------------------------
+   Windows: attachment previews, remove button, agent cursor halo
+--------------------------------------------------------------------------------------------- */
+/* Previews are pre-scaled by Thumb.tsx; the frame just sizes itself around them. */
+html.is-windows .attached-item img { max-height: 100px; max-width: 176px; width: auto; height: auto; object-fit: contain; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); display: block; }
+html.is-windows .user-bubble-image { width: auto; max-width: 260px; height: auto; border-radius: 12px; }
+
+/* The "x" to remove an attachment was a 16px see-through dot: make it a clear, easy target. */
+html.is-windows .attached-item .attached-image-remove {
+  top: -9px; right: -9px; width: 24px; height: 24px; z-index: 2;
+  background: #1b1e29; color: #fff; border: 1px solid rgba(255,255,255,0.35);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.55);
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+html.is-windows .attached-item .attached-image-remove svg { width: 13px; height: 13px; }
+html.is-windows .attached-item .attached-image-remove::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; } /* larger hit area */
+html.is-windows .attached-item .attached-image-remove:hover { background: #d9434a; border-color: rgba(255,255,255,0.6); transform: scale(1.08); }
+html.is-windows .attached-item .attached-image-remove:active { transform: scale(0.94); }
+html.is-windows .attached-multi { padding-top: 8px; }
+
+/* Agent cursor on Windows: the real pointer is the arrow, so the overlay is a soft halo that travels
+   with it (driven frame by frame from CursorApp.tsx, so no CSS transition on the position). */
+.agent-cursor.glide-js { transition: opacity 200ms ease; }
+.agent-cursor.glide-js img { display: none; }
+.agent-cursor-halo {
+  position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(60,131,245,0.34) 0%, rgba(60,131,245,0.16) 45%, rgba(60,131,245,0) 72%);
+  border: 1.5px solid rgba(120,170,255,0.75);
+  box-shadow: 0 0 18px rgba(60,131,245,0.55);
+}
+.agent-cursor.glide-js .agent-cursor-label { left: 18px; top: 14px; }
+
+/* The preview box was a fixed 52x52 square with overflow hidden: it cropped wide previews and cut
+   the corner "x" in half. On Windows it grows around its contents instead. */
+html.is-windows .attached-image-preview.attached-multi {
+  width: auto; height: auto; overflow: visible; border: 0; border-radius: 0;
+  margin: 12px 12px 0; gap: 12px;
+}
