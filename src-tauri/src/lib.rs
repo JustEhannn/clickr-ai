@@ -147,6 +147,12 @@ fn make_interactive(app: &tauri::AppHandle, panel: &dyn tauri_nspanel::Panel) {
 }
 
 pub fn show_main_window(app: &tauri::AppHandle) {
+    // Signed out: the chat must stay hidden; send the person to sign in instead.
+    if !auth::is_signed_in(app) {
+        open_signin_window(app.clone());
+        return;
+    }
+
     #[cfg(target_os = "macos")]
     {
         if let Ok(panel) = app.get_webview_panel("main") {
@@ -1325,7 +1331,9 @@ pub fn run() {
                         };
 
                         
-                        if is_assist {
+                        if is_assist && !auth::is_signed_in(app) {
+                            open_signin_window(app.clone());
+                        } else if is_assist {
                             let _ =
                                 app.emit(
                                     "assist-shortcut",
@@ -1349,6 +1357,25 @@ pub fn run() {
                     if let Ok(payload) =
                         serde_json::from_str::<serde_json::Value>(event.payload())
                     {
+                        if payload.get("signed_in").and_then(|v| v.as_bool()) == Some(false) {
+                            // Signed out: hide the chat (and Settings) until sign-in finishes.
+                            let handle = app_handle.clone();
+                            let _ = app_handle.run_on_main_thread(move || {
+                                #[cfg(target_os = "macos")]
+                                if let Ok(panel) = handle.get_webview_panel("main") {
+                                    panel.hide();
+                                }
+                                #[cfg(not(target_os = "macos"))]
+                                if let Some(w) = handle.get_webview_window("main") {
+                                    let _ = w.hide();
+                                }
+                                for label in ["settings", "bugreport"] {
+                                    if let Some(w) = handle.get_webview_window(label) {
+                                        let _ = w.close();
+                                    }
+                                }
+                            });
+                        }
                         if payload.get("signed_in").and_then(|v| v.as_bool()) == Some(true) {
                             let main_app_handle = app_handle.clone();
                             let _ = app_handle.run_on_main_thread(move || {

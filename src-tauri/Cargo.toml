@@ -1,6 +1,6 @@
 [package]
 name = "clickr"
-version = "0.1.1"
+version = "0.1.2"
 description = "Clickr — the AI copilot that sees your screen"
 authors = ["Clickr"]
 edition = "2021"

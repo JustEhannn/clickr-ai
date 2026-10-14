@@ -5,12 +5,23 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
+// The real app's source still says "Clickr" in places; the reference shows the new name "Clickr AI".
+// This swaps the text while building the reference only. The real app's files are not changed.
+const newName = {
+  name: "reference-rename",
+  enforce: "pre" as const,
+  transform(code: string, id: string) {
+    if (!/\/src\/[^/]+\.tsx?$/.test(id)) return null;
+    return code.replace(/\bClickr\b(?! AI)/g, "Clickr AI");
+  },
+};
+
 const here = (p: string) => path.resolve(__dirname, p);
 
 export default defineConfig({
   root: here(".."),
   base: "./",
-  plugins: [react(), tailwindcss()],
+  plugins: [newName, react(), tailwindcss()],
   resolve: {
     alias: [
       { find: "@tauri-apps/api/core", replacement: here("mocks/core.ts") },
