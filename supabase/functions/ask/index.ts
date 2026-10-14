@@ -474,14 +474,17 @@ Deno.serve(async (req) => {
   if (customModelId) {
     const { data: cm } = await admin
       .from("custom_models")
-      .select("provider, base_url, model_id, api_key")
+      .select("provider, base_url, model_id")
       .eq("id", customModelId)
       .eq("user_id", userId)
       .maybeSingle();
     if (!cm) return json(404, { error: "model_not_found", message: "That custom model no longer exists." });
+    // The key itself lives encrypted in Vault; only this server-side call can read it.
+    const { data: apiKey } = await admin.rpc("custom_model_key", { p_model_id: customModelId });
+    if (!apiKey) return json(404, { error: "model_not_found", message: "That custom model's key is missing. Re-add it in Settings." });
     try {
       const imgs = [...(screenshot ? [screenshot] : []), ...attachments];
-      const answer = await askCustom(cm as CustomModel, question, imgs, context);
+      const answer = await askCustom({ ...(cm as Omit<CustomModel, "api_key">), api_key: apiKey as string }, question, imgs, context);
       return json(200, { answer });
     } catch (err) {
       console.error("custom model failed", err instanceof Error ? err.message : err);

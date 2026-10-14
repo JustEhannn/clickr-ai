@@ -25,7 +25,15 @@ done
 
 echo "==> Building Clickr $VERSION (universal: Apple Silicon + Intel)"
 export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY")"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+# A password-protected key asks for it here (typing is hidden). An unprotected key just needs Enter.
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+x}" ]; then
+  if [ -t 0 ]; then
+    read -r -s -p "Update-signing key password (Enter if none): " TAURI_SIGNING_PRIVATE_KEY_PASSWORD; echo
+  else
+    TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+  fi
+fi
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
 
 OUT="src-tauri/target/universal-apple-darwin/release/bundle"
