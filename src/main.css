@@ -3599,3 +3599,6 @@ select.model-input option { background: #1c1f26; }
 .setup-bar-fill.indeterminate { width: 40%; animation: setup-slide 1.2s ease-in-out infinite; }
 @keyframes setup-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
 .setup-error { margin-top: 10px; padding: 8px 10px; border-radius: 9px; background: rgba(239,68,68,0.12); color: #FCA5A5; font-size: 11px; line-height: 1.45; }
+
+.setup-drag { cursor: grab; margin: -24px -22px 0; padding: 24px 22px 4px; user-select: none; }
+.setup-drag:active { cursor: grabbing; }

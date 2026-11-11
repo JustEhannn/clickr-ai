@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { MODELS, recommended, type ModelOption } from "./models";
 
@@ -93,10 +94,19 @@ export default function SetupAI({ onClose, onDone }: { onClose: () => void; onDo
         <button className="agent-beta-close" type="button" onClick={onClose} aria-label="Close">
           ✕
         </button>
-        <div className="agent-beta-title">Set up your AI</div>
-        <p className="agent-beta-text">
-          Clickr runs a free open-source AI on your own computer. It&apos;s private, works offline, and costs nothing.
-        </p>
+        {/* Drag the whole window by this header, like the chat's own drag handle. */}
+        <div
+          className="setup-drag"
+          onMouseDown={(e) => {
+            if ((e.target as HTMLElement).closest("button, a, input")) return;
+            void getCurrentWindow().startDragging();
+          }}
+        >
+          <div className="agent-beta-title">Set up your AI</div>
+          <p className="agent-beta-text">
+            Clickr runs a free open-source AI on your own computer. It&apos;s private, works offline, and costs nothing.
+          </p>
+        </div>
 
         <div className="setup-step">
           <span className={`setup-dot ${ready ? "done" : ""}`}>{ready ? "✓" : "1"}</span>
