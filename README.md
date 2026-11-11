@@ -95,10 +95,6 @@ React 19, TypeScript, Vite, Tauri 2, Rust, Ollama, ScreenCaptureKit
 
 [![Star History Chart](https://api.star-history.com/svg?repos=JustEhannn/clickr&type=date&legend=top-left)](https://www.star-history.com/#JustEhannn/clickr&type=date&legend=top-left)
 
-## Contributing
-
-We welcome contributions. Fork the repo, create a feature branch, and open a pull request. Windows support is the biggest open task: see [WINDOWS.md](WINDOWS.md). Please keep new native code behind `cfg` gates so macOS keeps working.
-
 ## License
 
 [MIT](LICENSE): free for personal and commercial use.
