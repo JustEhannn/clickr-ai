@@ -5,6 +5,7 @@ import { emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import { onboardingKey } from "./storage";
+import { MODELS } from "./models";
 import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { reportProblem } from "./bugReport";
@@ -247,20 +248,20 @@ export default function SettingsApp() {
   const [bgInput, setBgInput] = useState(() => localStorage.getItem("clickr-agent-background-input") === "true");
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem("clickr-auto-approve") === "true");
 
-  const [ollama, setOllama] = useState<{ models: { name: string; size: number }[]; active: string | null }>({ models: [], active: null });
+  const [ai, setAi] = useState<{ models: { name: string; size: number }[]; active: string | null }>({ models: [], active: null });
   const session = { user_id: "local" };
 
-  function refreshOllama() {
-    invoke<{ models: { name: string; size: number }[]; active: string | null }>("ollama_status")
-      .then(setOllama)
+  function refreshAi() {
+    invoke<{ models: { name: string; size: number }[]; active: string | null }>("ai_status")
+      .then(setAi)
       .catch(() => {});
   }
 
   useEffect(() => {
-    refreshOllama();
+    refreshAi();
     let cleanup: (() => void) | undefined;
     appWindow.onFocusChanged(({ payload: focused }) => {
-      if (focused) refreshOllama();
+      if (focused) refreshAi();
     }).then((fn) => {
       cleanup = fn;
     });
@@ -456,12 +457,12 @@ export default function SettingsApp() {
           <div className="settings-card">
             <SectionHeader icon="brain" title="AI model" />
             <div className="model-locked-text" style={{ marginBottom: 8 }}>
-              Clickr runs a free open model on your computer with Ollama. Nothing you ask leaves your Mac.
+              Clickr runs a free open model on your computer. Nothing you ask leaves your Mac.
             </div>
             <div className="settings-info-row">
-              <span>{ollama.active ? ollama.active : "No model chosen yet"}</span>
+              <span>{ai.active ? (MODELS.find((x) => x.tag === ai.active)?.name ?? ai.active) : "No model chosen yet"}</span>
               <button className="settings-pill-button settings-pill-accent" type="button" onClick={() => void openAiSetup()}>
-                {ollama.active ? "Change" : "Set up"}
+                {ai.active ? "Change" : "Set up"}
               </button>
             </div>
           </div>

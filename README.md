@@ -26,7 +26,7 @@
 
 ---
 
-Clickr AI is a small floating window that opens with a keyboard shortcut. Ask a question and it can look at your screen to answer. In Agent Mode it clicks and types for you, with its own visible cursor and an approval prompt for each action. It runs on a free open model on your own computer through [Ollama](https://ollama.com): no account, no subscription, no server, no telemetry. Everything you ask or show it stays on your Mac.
+Clickr AI is a small floating window that opens with a keyboard shortcut. Ask a question and it can look at your screen to answer. In Agent Mode it clicks and types for you, with its own visible cursor and an approval prompt for each action. It runs a free open model right inside the app, on your own computer: no account, no subscription, no server, no telemetry. Everything you ask or show it stays on your Mac.
 
 ## Download
 
@@ -41,7 +41,7 @@ Requires macOS 14 or later. The app isn't notarized yet, so macOS may say it's f
 
 - **Ask about your screen**: global hotkey (`⌘ ⇧ Space`) opens Clickr anywhere; **Assist** (`⌘ ↵`) looks at your screen first and helps
 - **Agent Mode**: Clickr clicks, types, opens apps and manages files for you, with its own on-screen cursor, an approval prompt for each action, and a Stop button
-- **Free local AI**: a first-run step installs Ollama and downloads the model you pick, from tiny and fast to large and strong (see [Models](#models))
+- **Free local AI**: a first-run step downloads the model you pick, from tiny and fast to large and strong, plus a small built-in engine (llama.cpp). No other app to install or keep open (see [Models](#models))
 - **Files and images**: drop in images, PDFs-as-text, code and text files to ask about them
 - **Memory**: type "remember …" and Clickr keeps it on your computer for later chats
 - **App-aware and multi-monitor**: knows which app you're in and can capture any display
@@ -84,12 +84,12 @@ Maintainers: `scripts/bump-version.sh X.Y.Z`, then `PUBLISH=1 scripts/release.sh
 ## How it works
 
 - **UI**: React + TypeScript in [`src/`](src/). `App.tsx` is the chat, `SetupAI.tsx` the first-run model setup, `SettingsApp.tsx` the settings.
-- **Native**: Rust + Tauri 2 in [`src-tauri/src/`](src-tauri/src/). `ollama.rs` installs and starts Ollama, downloads models and talks to the model; `agent.rs` runs Agent Mode; `platform/` holds the macOS screen-capture and Accessibility code; `local.rs` stores memories on disk.
+- **Native**: Rust + Tauri 2 in [`src-tauri/src/`](src-tauri/src/). `engine.rs` downloads the llama.cpp engine and models from Hugging Face, runs the engine when you ask something, and talks to the model; `agent.rs` runs Agent Mode; `platform/` holds the macOS screen-capture and Accessibility code; `local.rs` stores memories on disk.
 - **Your data** stays in `~/Library/Application Support/net.getclickr.app` and the app's local storage.
 
 ## Tech stack
 
-React 19, TypeScript, Vite, Tauri 2, Rust, Ollama, ScreenCaptureKit
+React 19, TypeScript, Vite, Tauri 2, Rust, llama.cpp, ScreenCaptureKit
 
 ## Star History
 
@@ -101,7 +101,8 @@ React 19, TypeScript, Vite, Tauri 2, Rust, Ollama, ScreenCaptureKit
 
 ## Acknowledgments
 
-- **[Ollama](https://ollama.com)**: runs the local models
+- **[llama.cpp](https://github.com/ggml-org/llama.cpp)**: the engine that runs the local models
+- **[Hugging Face](https://huggingface.co)** and **[Unsloth](https://github.com/unslothai/unsloth)**: host the GGUF model files
 - **[Qwen](https://github.com/QwenLM)** and **[Gemma](https://ai.google.dev/gemma)**: the open models Clickr offers
 - **[Tauri](https://tauri.app/)**: cross-platform desktop framework
 - **[React](https://react.dev/)**: UI library

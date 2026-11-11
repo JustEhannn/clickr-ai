@@ -3550,55 +3550,60 @@ select.model-input option { background: #1c1f26; }
 .update-bar-text { flex: 1; min-width: 0; font-weight: 600; }
 .agent-beta-waiting { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px 0 6px; color: rgba(255,255,255,0.5); font-size: 11px; }
 
-/* ----- AI setup (install Ollama, pick and download a model) ----- */
-.setup-card { max-width: 420px; max-height: calc(100vh - 40px); overflow-y: auto; text-align: left; scrollbar-width: thin; }
-.setup-card .agent-beta-title, .setup-card .agent-beta-text { text-align: left; }
-.setup-step { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-.setup-step.off, .setup-models.off { opacity: 0.4; }
-.setup-dot {
-  flex: none; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); font-size: 11px; font-weight: 700;
+/* ----- AI setup: full-window first-run screen (the rest of Clickr is hidden while it is open) ----- */
+.clickr-root.setup-only > header, .clickr-root.setup-only > section { display: none; }
+.setup-overlay {
+  position: fixed; inset: 0; z-index: 20002; display: flex; align-items: center; justify-content: center;
+  padding: 18px; background: transparent; pointer-events: auto; animation: clickr-fade-in 160ms ease-out both;
 }
-.setup-dot.done { background: rgba(34,197,94,0.2); color: #22C55E; }
-.setup-step-body { flex: 1; min-width: 0; }
-.setup-step-title { color: rgba(255,255,255,0.92); font-size: 13px; font-weight: 600; }
-.setup-step-sub { color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 1px; }
-.setup-btn {
-  flex: none; height: 28px; padding: 0 14px; border: 0; border-radius: 9px; cursor: pointer;
-  background: #3C83F5; color: #fff; font-size: 12px; font-weight: 600;
+.setup-card {
+  position: relative; display: flex; flex-direction: column; width: 100%; max-width: 640px; height: 100%; max-height: 724px;
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 22px; overflow: hidden;
+  background: rgba(5,6,10,0.99); box-shadow: 0 4px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+  animation: clickr-pop-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-.setup-btn:hover:not(:disabled) { background: #4A8DF7; }
-.setup-btn:disabled, .agent-beta-confirm:disabled { opacity: 0.5; cursor: default; }
-.setup-link { display: block; margin: 8px 0 0; padding: 0; border: 0; background: none; color: #9DC0FF; font-size: 11px; cursor: pointer; }
-.setup-link:hover { text-decoration: underline; }
-.setup-models { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+.setup-drag { flex: none; cursor: grab; padding: 26px 30px 14px; user-select: none; }
+.setup-drag:active { cursor: grabbing; }
+.setup-title { color: rgba(255,255,255,0.97); font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.setup-lead { margin: 8px 0 0; color: rgba(255,255,255,0.6); font-size: 13px; line-height: 1.6; }
+.setup-models {
+  flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 30px 14px; scrollbar-width: thin;
+}
 .setup-model {
-  width: 100%; padding: 9px 11px; text-align: left; border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
+  flex: none; width: 100%; padding: 14px 16px; text-align: left; border: 1px solid rgba(255,255,255,0.09); border-radius: 14px;
   background: rgba(255,255,255,0.03); color: inherit; font-family: inherit; cursor: pointer;
   transition: border-color 140ms ease, background 140ms ease;
 }
 .setup-model:hover:not(:disabled) { background: rgba(255,255,255,0.055); }
 .setup-model.selected { border-color: #3C83F5; background: rgba(60,131,245,0.1); }
 .setup-model:disabled { cursor: default; }
-.setup-model-top { display: flex; align-items: center; gap: 6px; }
-.setup-model-name { color: rgba(255,255,255,0.94); font-size: 12.5px; font-weight: 600; }
-.setup-model-size { margin-left: auto; color: rgba(255,255,255,0.6); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.setup-chip { padding: 1px 7px; border-radius: 99px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.65); font-size: 9.5px; font-weight: 600; }
+.setup-model-top { display: flex; align-items: center; gap: 8px; }
+.setup-model-name { color: rgba(255,255,255,0.95); font-size: 14.5px; font-weight: 650; }
+.setup-model-size { margin-left: auto; color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.setup-chip { padding: 2px 9px; border-radius: 99px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.65); font-size: 10.5px; font-weight: 600; }
 .setup-chip.accent { background: rgba(60,131,245,0.2); color: #9DC0FF; }
-.setup-model-sub { display: flex; gap: 8px; align-items: baseline; margin-top: 4px; color: rgba(255,255,255,0.55); font-size: 11px; line-height: 1.4; }
-.setup-quality { flex: none; font-weight: 700; font-size: 10.5px; color: #9DC0FF; }
+.setup-model-sub { display: flex; gap: 10px; align-items: baseline; margin-top: 6px; color: rgba(255,255,255,0.6); font-size: 12.5px; line-height: 1.45; }
+.setup-quality { flex: none; font-weight: 700; font-size: 12px; color: #9DC0FF; }
 .setup-quality.q-best, .setup-quality.q-excellent { color: #22C55E; }
 .setup-quality.q-decent, .setup-quality.q-basic { color: rgba(255,255,255,0.55); }
-.setup-model-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
-.setup-model-tags span { padding: 1px 7px; border-radius: 6px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); font-size: 9.5px; }
+.setup-model-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.setup-model-tags span { padding: 2px 9px; border-radius: 7px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.55); font-size: 11px; }
 .setup-model-tags .warn { background: rgba(245,158,11,0.15); color: #F5B454; }
-.setup-progress { margin-top: 12px; }
-.setup-progress-row { display: flex; justify-content: space-between; color: rgba(255,255,255,0.65); font-size: 11px; margin-bottom: 5px; }
-.setup-bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.setup-footer { flex: none; padding: 14px 30px 22px; border-top: 1px solid rgba(255,255,255,0.07); background: rgba(5,6,10,1); }
+.setup-primary {
+  width: 100%; height: 46px; border: 0; border-radius: 13px; cursor: pointer; color: #fff; font-size: 14px; font-weight: 650;
+  background: linear-gradient(135deg, #3C83F5, #4A8DF7); box-shadow: 0 4px 14px rgba(60,131,245,0.35);
+  transition: transform 140ms ease, filter 140ms ease;
+}
+.setup-primary:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.06); }
+.setup-primary:disabled { opacity: 0.55; cursor: default; }
+.setup-link { display: block; margin: 12px auto 0; padding: 0; border: 0; background: none; color: #9DC0FF; font-size: 12px; cursor: pointer; }
+.setup-link:hover:not(:disabled) { text-decoration: underline; }
+.setup-link:disabled { opacity: 0.4; cursor: default; }
+.setup-progress { margin-bottom: 12px; }
+.setup-progress-row { display: flex; justify-content: space-between; color: rgba(255,255,255,0.7); font-size: 12px; margin-bottom: 7px; }
+.setup-bar { height: 7px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
 .setup-bar-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, #3C83F5, #4A8DF7); transition: width 200ms ease; }
 .setup-bar-fill.indeterminate { width: 40%; animation: setup-slide 1.2s ease-in-out infinite; }
 @keyframes setup-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
-.setup-error { margin-top: 10px; padding: 8px 10px; border-radius: 9px; background: rgba(239,68,68,0.12); color: #FCA5A5; font-size: 11px; line-height: 1.45; }
-
-.setup-drag { cursor: grab; margin: -24px -22px 0; padding: 24px 22px 4px; user-select: none; }
-.setup-drag:active { cursor: grabbing; }
+.setup-error { margin-bottom: 12px; padding: 9px 12px; border-radius: 10px; background: rgba(239,68,68,0.12); color: #FCA5A5; font-size: 12px; line-height: 1.5; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }

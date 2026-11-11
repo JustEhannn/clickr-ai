@@ -418,24 +418,34 @@ pub async fn agent_step(
         json!({ "role": "system", "content": AGENT_PROMPT }),
         json!({ "role": "user", "content": format!("{}Goal:\n{}", context.map(|c| c + "\n\n").unwrap_or_default(), goal) }),
     ];
-    // Rebuild the transcript: each tool call, then its result.
-    for step in history.iter().rev().take(40).rev() {
+    // Rebuild the transcript: each tool call (with an id), then its result.
+    let mut pending: std::collections::VecDeque<String> = Default::default();
+    for (n, step) in history.iter().rev().take(40).rev().enumerate() {
         let name = step.get("name").and_then(|n| n.as_str()).unwrap_or("");
         match step.get("kind").and_then(|k| k.as_str()) {
-            Some("call") => messages.push(json!({ "role": "assistant", "content": "", "tool_calls": [{ "function": { "name": name, "arguments": step.get("args").cloned().unwrap_or(json!({})) } }] })),
+            Some("call") => {
+                let id = format!("call_{n}");
+                pending.push_back(id.clone());
+                let args = step.get("args").cloned().unwrap_or(json!({})).to_string();
+                messages.push(json!({ "role": "assistant", "content": "", "tool_calls": [{ "id": id, "type": "function", "function": { "name": name, "arguments": args } }] }));
+            }
             Some("result") => {
                 let r = step.get("result").and_then(|r| r.as_str()).unwrap_or("");
-                messages.push(json!({ "role": "tool", "tool_name": name, "content": r.chars().take(30_000).collect::<String>() }));
+                let id = pending.pop_front().unwrap_or_else(|| format!("call_{n}"));
+                messages.push(json!({ "role": "tool", "tool_call_id": id, "content": r.chars().take(30_000).collect::<String>() }));
             }
             _ => {}
         }
     }
     if let Some(s) = screenshot_base64 {
-        let (_, data) = crate::prepare_image_for_upload_max(&s, AGENT_SCREEN_DIMENSION)?;
-        messages.push(json!({ "role": "user", "content": "Current screen:", "images": [data] }));
+        let (mime, data) = crate::prepare_image_for_upload_max(&s, AGENT_SCREEN_DIMENSION)?;
+        messages.push(json!({ "role": "user", "content": [
+            { "type": "text", "text": "Current screen:" },
+            { "type": "image_url", "image_url": { "url": format!("data:{mime};base64,{data}") } },
+        ] }));
     }
 
-    let reply = crate::ollama::chat(&app, json!(messages), Some(tools()), None).await.map_err(|e| e.message)?;
+    let reply = crate::engine::chat(&app, json!(messages), Some(tools()), None).await.map_err(|e| e.message)?;
     let note = reply.get("content").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
     let calls: Vec<Value> = reply
         .get("tool_calls")

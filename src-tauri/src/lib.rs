@@ -1,7 +1,7 @@
 mod platform;
 
 mod local;
-mod ollama;
+mod engine;
 mod agent;
 use base64::{engine::general_purpose, Engine as _};
 use std::sync::Mutex;
@@ -770,15 +770,15 @@ async fn ask_ai(
     attached_images_base64: Option<Vec<String>>,
     context: Option<String>,
     stream_id: Option<String>,
-) -> Result<String, ollama::AskError> {
-    let bad = |e: String| ollama::AskError { kind: "bad_image".into(), message: e, retry_after_seconds: None };
+) -> Result<String, engine::AskError> {
+    let bad = |e: String| engine::AskError { kind: "bad_image".into(), message: e, retry_after_seconds: None };
 
-    let mut images: Vec<String> = Vec::new();
+    let mut images: Vec<(String, String)> = Vec::new();
     let mut files = String::new();
     for data_url in screenshot_base64.into_iter().chain(attached_images_base64.unwrap_or_default().into_iter().take(4)) {
         let (mime, data) = prepare_image_for_upload(&data_url).map_err(bad)?;
         if mime.starts_with("image/") {
-            images.push(data);
+            images.push((mime, data));
         } else if mime.starts_with("text/") {
             let bytes = general_purpose::STANDARD.decode(&data).map_err(|e| bad(e.to_string()))?;
             files.push_str(&format!("\n\n[Attached file]\n{}", String::from_utf8_lossy(&bytes).chars().take(20_000).collect::<String>()));
@@ -792,16 +792,19 @@ async fn ask_ai(
         Some(c) => format!("{c}\n\n{question}{files}"),
         None => format!("{question}{files}"),
     };
-    let mut user = serde_json::json!({ "role": "user", "content": text });
-    if !images.is_empty() {
-        user["images"] = serde_json::json!(images);
+    let mut parts = vec![serde_json::json!({ "type": "text", "text": text })];
+    for (mime, data) in images {
+        parts.push(serde_json::json!({ "type": "image_url", "image_url": { "url": format!("data:{mime};base64,{data}") } }));
     }
-    let messages = serde_json::json!([{ "role": "system", "content": SYSTEM_PROMPT }, user]);
+    let messages = serde_json::json!([
+        { "role": "system", "content": SYSTEM_PROMPT },
+        { "role": "user", "content": parts },
+    ]);
 
-    let reply = ollama::chat(&app, messages, None, stream_id.as_deref()).await?;
+    let reply = engine::chat(&app, messages, None, stream_id.as_deref()).await?;
     let answer = reply.get("content").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
     if answer.is_empty() {
-        return Err(ollama::AskError { kind: "unknown".into(), message: "The model sent an empty answer. Try again.".into(), retry_after_seconds: None });
+        return Err(engine::AskError { kind: "unknown".into(), message: "The model sent an empty answer. Try again.".into(), retry_after_seconds: None });
     }
     Ok(answer)
 }
@@ -1165,6 +1168,7 @@ pub fn run() {
              }
 
             show_main_window(app.handle());
+            engine::start_idle_reaper();
 
             Ok(())
         })
@@ -1172,13 +1176,11 @@ pub fn run() {
             tauri::generate_handler![
                 capture_screenshot,
                 ask_ai,
-                ollama::check_ai,
-                ollama::ollama_status,
-                ollama::ollama_install,
-                ollama::ollama_start,
-                ollama::ollama_pull,
-                ollama::ollama_set_model,
-                ollama::system_ram_gb,
+                engine::check_ai,
+                engine::ai_status,
+                engine::ai_download_model,
+                engine::ai_set_model,
+                engine::system_ram_gb,
                 set_global_shortcuts,
                 open_settings,
                 quit_app,
@@ -1212,8 +1214,12 @@ pub fn run() {
                 open_bug_report,
             ]
         )
-        .run(tauri::generate_context!())
-        .expect(
-            "error while running tauri application",
-        );
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // Don't leave a model running (and holding memory) after Clickr quits.
+            if let tauri::RunEvent::Exit = event {
+                engine::shutdown();
+            }
+        });
 }

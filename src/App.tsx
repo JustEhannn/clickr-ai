@@ -20,6 +20,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { agentBetaKey, onboardingKey } from "./storage";
 import { reportProblem } from "./bugReport";
 import SetupAI from "./SetupAI";
+import { MODELS } from "./models";
 import { canUse, FILE_ACCEPT_ALL, type Tier } from "./tiers";
 import {
   describeCall,
@@ -59,7 +60,7 @@ type ApprovalDecision = "approve" | "approve_all" | "deny" | "stop";
 // Elements that make up the clickable UI. Everything else in the window is
 // transparent and must let clicks through to the apps behind.
 const CLICKABLE_SELECTOR =
-  ".cue-toolbar, .cue-panel, .settings-popover, .permissions-overlay, .agent-beta-overlay";
+  ".cue-toolbar, .cue-panel, .settings-popover, .permissions-overlay, .agent-beta-overlay, .setup-card";
 
 type ChatHistoryEntry = {
   id: string;
@@ -476,7 +477,7 @@ export default function App() {
   );
 
 
-  const [ollama, setOllama] = useState<{ models: { name: string; size: number }[]; active: string | null }>({ models: [], active: null });
+  const [ai, setAi] = useState<{ models: { name: string; size: number }[]; active: string | null }>({ models: [], active: null });
   const [setupOpen, setSetupOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [agentMode, setAgentMode] = useState(false);
@@ -733,7 +734,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
-    // On the very first check, an AI that isn't ready (no Ollama, no model yet) starts the setup
+    // On the very first check, an AI that isn't ready (no engine or model yet) starts the setup
     // step of onboarding; later checks only update the status dot.
     let first = true;
     async function checkAI() {
@@ -749,7 +750,7 @@ export default function App() {
           if (isFirst) setSetupOpen(true);
         }
       }
-      void refreshOllama();
+      void refreshAi();
     }
 
     void checkAI();
@@ -1192,12 +1193,12 @@ export default function App() {
   }
 
 
-  async function refreshOllama() {
-    const st = await invoke<{ models: { name: string; size: number }[]; active: string | null }>("ollama_status").catch(() => null);
-    if (st) setOllama({ models: st.models, active: st.active });
+  async function refreshAi() {
+    const st = await invoke<{ models: { name: string; size: number }[]; active: string | null }>("ai_status").catch(() => null);
+    if (st) setAi({ models: st.models, active: st.active });
   }
 
-  const activeModelName = ollama.active ?? "Choose an AI model";
+  const activeModelName = ai.active ? (MODELS.find((x) => x.tag === ai.active)?.name ?? ai.active) : "Choose an AI model";
 
   function handleAskError(error: unknown) {
     const askErr = error as { kind?: string; message?: string } | string;
@@ -1929,7 +1930,7 @@ export default function App() {
   }
 
   return (
-    <main className={`clickr-root ${tourActive ? "touring" : ""} ${agentRunning ? "agent-running" : ""}`}>
+    <main className={`clickr-root ${tourActive ? "touring" : ""} ${agentRunning ? "agent-running" : ""} ${setupOpen ? "setup-only" : ""}`}>
       <header 
         className={`cue-toolbar`}
         onMouseDown={handleDrag}>
@@ -2007,21 +2008,21 @@ export default function App() {
 
                   {modelMenuOpen && (
                     <div className="model-menu">
-                      {ollama.models.map((m) => (
+                      {ai.models.map((m) => (
                         <button
                           key={m.name}
                           type="button"
-                          className={`model-menu-item ${ollama.active === m.name ? "selected" : ""}`}
+                          className={`model-menu-item ${ai.active === m.name ? "selected" : ""}`}
                           {...makeSafeClickHandlers(clickDownPosRef, () => {
-                            void invoke("ollama_set_model", { model: m.name }).then(() => void refreshOllama());
+                            void invoke("ai_set_model", { model: m.name }).then(() => void refreshAi());
                             setModelMenuOpen(false);
                           })}
                         >
                           <span className="model-menu-text">
-                            <span className="model-menu-name">{m.name}</span>
+                            <span className="model-menu-name">{MODELS.find((x) => x.tag === m.name)?.name ?? m.name}</span>
                             <span className="model-menu-sub">{(m.size / 1e9).toFixed(1)} GB</span>
                           </span>
-                          {ollama.active === m.name && <Icon name="check" size={13} />}
+                          {ai.active === m.name && <Icon name="check" size={13} />}
                         </button>
                       ))}
                       <button
@@ -2663,7 +2664,7 @@ export default function App() {
           onDone={() => {
             setSetupOpen(false);
             setAiHealth("healthy");
-            void refreshOllama();
+            void refreshAi();
           }}
         />
       )}
