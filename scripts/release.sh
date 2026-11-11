@@ -42,7 +42,8 @@ echo "Built: $DMG"
 [ -f "$OUT/macos/Clickr AI.app.tar.gz.sig" ] || { echo "No update signature: provide the signing key to publish."; exit 1; }
 
 STAGE="$(mktemp -d)"
-cp "$DMG" "$STAGE/Clickr-AI-$VERSION.dmg"
+# A fixed file name, so the website can link to .../releases/latest/download/Clickr-AI.dmg forever.
+cp "$DMG" "$STAGE/Clickr-AI.dmg"
 cp "$OUT/macos/Clickr AI.app.tar.gz" "$STAGE/Clickr-AI.app.tar.gz"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 python3 - "$VERSION" "$NOTES" "$(cat "$OUT/macos/Clickr AI.app.tar.gz.sig")" "https://github.com/$REPO/releases/download/v$VERSION/Clickr-AI.app.tar.gz" "$STAGE/latest.json" <<'PY'
