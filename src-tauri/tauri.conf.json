@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Clickr AI",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "identifier": "net.getclickr.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -11,7 +11,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEzOTFFRUJDMzFDQTA1MDYKUldRR0Jjb3h2TzZSRTBxNFNIRlUzYklYQ3dxZksrNDAxdWY3M1J1bkNRdENUb2Q5bC9lT3RBLysK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUyQjcwRDY3MTE0QzNDMTQKUldRVVBFd1JadzIzNGdvQnhwWTJybjc1emUvTzJwU3h3ZjlnZmVLOHZ5aFJoVG9lY3ZwRlkxcjkK",
       "endpoints": [
         "https://github.com/JustEhannn/clickr/releases/latest/download/latest.json"
       ]
