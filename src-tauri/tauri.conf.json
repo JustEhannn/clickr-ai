@@ -13,7 +13,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUyQjcwRDY3MTE0QzNDMTQKUldRVVBFd1JadzIzNGdvQnhwWTJybjc1emUvTzJwU3h3ZjlnZmVLOHZ5aFJoVG9lY3ZwRlkxcjkK",
       "endpoints": [
-        "https://github.com/JustEhannn/clickr/releases/latest/download/latest.json"
+        "https://github.com/JustEhannn/clickr-ai/releases/latest/download/latest.json"
       ]
     }
   },

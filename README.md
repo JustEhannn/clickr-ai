@@ -5,11 +5,11 @@
 <h1 align="center">Clickr AI</h1>
 
 <p align="center">
-  <a href="https://github.com/JustEhannn/clickr/blob/main/LICENSE"><img src="https://img.shields.io/github/license/JustEhannn/clickr?style=flat" alt="License" /></a>
+  <a href="https://github.com/JustEhannn/clickr-ai/blob/main/LICENSE"><img src="https://img.shields.io/github/license/JustEhannn/clickr-ai?style=flat" alt="License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat" alt="Platform" />
-  <a href="https://github.com/JustEhannn/clickr/releases/latest"><img src="https://img.shields.io/github/v/release/JustEhannn/clickr?style=flat&sort=semver" alt="GitHub release" /></a>
-  <a href="https://github.com/JustEhannn/clickr/releases"><img src="https://img.shields.io/github/downloads/JustEhannn/clickr/total?style=flat&color=blue" alt="Downloads" /></a>
-  <a href="https://github.com/JustEhannn/clickr/stargazers"><img src="https://img.shields.io/github/stars/JustEhannn/clickr?style=flat" alt="GitHub stars" /></a>
+  <a href="https://github.com/JustEhannn/clickr-ai/releases/latest"><img src="https://img.shields.io/github/v/release/JustEhannn/clickr-ai?style=flat&sort=semver" alt="GitHub release" /></a>
+  <a href="https://github.com/JustEhannn/clickr-ai/releases"><img src="https://img.shields.io/github/downloads/JustEhannn/clickr-ai/total?style=flat&color=blue" alt="Downloads" /></a>
+  <a href="https://github.com/JustEhannn/clickr-ai/stargazers"><img src="https://img.shields.io/github/stars/JustEhannn/clickr-ai?style=flat" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -19,8 +19,8 @@
 
 <p align="center">
   <a href="https://www.clickrai.com">Website</a> &middot;
-  <a href="https://github.com/JustEhannn/clickr/releases/latest">Download</a> &middot;
-  <a href="https://github.com/JustEhannn/clickr/issues">Issues</a> &middot;
+  <a href="https://github.com/JustEhannn/clickr-ai/releases/latest">Download</a> &middot;
+  <a href="https://github.com/JustEhannn/clickr-ai/issues">Issues</a> &middot;
   <a href="WINDOWS.md">Windows port</a>
 </p>
 
@@ -32,7 +32,7 @@ Clickr AI is a small floating window that opens with a keyboard shortcut. Ask a 
 
 | Platform                    | Download                                                                  |
 | --------------------------- | ------------------------------------------------------------------------- |
-| macOS (Apple Silicon, Intel) | [`.dmg`](https://github.com/JustEhannn/clickr/releases/latest/download/Clickr-AI.dmg) |
+| macOS (Apple Silicon, Intel) | [`.dmg`](https://github.com/JustEhannn/clickr-ai/releases/latest/download/Clickr-AI.dmg) |
 | Windows                     | Coming soon: see [WINDOWS.md](WINDOWS.md)                                 |
 
 Requires macOS 14 or later. The app isn't notarized yet, so macOS may say it's from an unidentified developer: open **System Settings → Privacy & Security → Open Anyway**. Clickr asks for **Screen Recording** (to see your screen) and, for Agent Mode, **Accessibility**.
@@ -70,8 +70,8 @@ The list lives in [`src/models.ts`](src/models.ts). Ranking is by model generati
 ## Quick start
 
 ```bash
-git clone https://github.com/JustEhannn/clickr.git
-cd clickr
+git clone https://github.com/JustEhannn/clickr-ai.git
+cd clickr-ai
 npm install
 npm run tauri dev      # run it
 npm run tauri build    # make the app and a .dmg
@@ -93,7 +93,7 @@ React 19, TypeScript, Vite, Tauri 2, Rust, Ollama, ScreenCaptureKit
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=JustEhannn/clickr&type=date&legend=top-left)](https://www.star-history.com/#JustEhannn/clickr&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=JustEhannn/clickr-ai&type=date&legend=top-left)](https://www.star-history.com/#JustEhannn/clickr-ai&type=date&legend=top-left)
 
 ## License
 

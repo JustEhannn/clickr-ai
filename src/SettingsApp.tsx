@@ -598,7 +598,7 @@ export default function SettingsApp() {
               <Icon name="chevron" size={14} />
             </button>
 
-            <button className="settings-row" type="button" onClick={() => void openUrl("https://github.com/JustEhannn/clickr")}>
+            <button className="settings-row" type="button" onClick={() => void openUrl("https://github.com/JustEhannn/clickr-ai")}>
               <div>
                 <div className="settings-row-title">Open source on GitHub</div>
                 <div className="settings-row-description">Read the code, report issues, or contribute</div>

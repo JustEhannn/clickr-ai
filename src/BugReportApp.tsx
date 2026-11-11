@@ -85,7 +85,7 @@ export default function BugReportApp() {
       const details = Object.entries(context).map(([k, v]) => `- ${k}: ${String(v)}`).join("\n");
       const body = `${text}\n\n---\n${details}`.slice(0, 5000);
       await openUrl(
-        `https://github.com/JustEhannn/clickr/issues/new?title=${encodeURIComponent(text.slice(0, 70))}&body=${encodeURIComponent(body)}`,
+        `https://github.com/JustEhannn/clickr-ai/issues/new?title=${encodeURIComponent(text.slice(0, 70))}&body=${encodeURIComponent(body)}`,
       );
       setStage("sent");
       window.setTimeout(() => void appWindow.close(), 2200);
