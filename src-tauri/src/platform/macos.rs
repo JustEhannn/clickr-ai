@@ -236,7 +236,7 @@ pub fn active_window_info(titles_to_exclude: &[&str]) -> Option<(String, Option<
 }
 
 // ---------------------------------------------------------------------------
-// Computer control (Agent Mode, Pro+). Needs the Accessibility permission.
+// Computer control (Agent Mode). Needs the Accessibility permission.
 // Coordinates arrive normalised to a 0-1000 grid over the main display.
 //
 // By default input is posted straight to the target app's process (the app

@@ -1,10 +1,9 @@
-// Agent Mode (Pro+): the model plans one tool call at a time on the server
+// Agent Mode: the local model plans one tool call at a time
 // (`agent` Edge Function); this module executes those calls locally.
 // Everything here is deliberately conservative: file tools are confined to the
 // user's home directory, secrets folders are off limits, and the frontend asks
 // for approval before any action that changes state.
 
-use crate::auth;
 use serde_json::{json, Value};
 use std::path::{Component, PathBuf};
 use tauri::{AppHandle, Emitter};
@@ -376,22 +375,36 @@ fn exec_blocking(app: &AppHandle, name: &str, args: &Value, real: bool) -> Resul
     }
 }
 
-async fn call_agent(token: &str, body: &Value) -> Result<(u16, Value), String> {
-    let res = reqwest::Client::new()
-        .post(format!("{}/functions/v1/agent", auth::SUPABASE_URL))
-        .header("apikey", auth::SUPABASE_ANON_KEY)
-        .header("Authorization", format!("Bearer {token}"))
-        .json(body)
-        .timeout(std::time::Duration::from_secs(120))
-        .send()
-        .await
-        .map_err(|_| "Clickr couldn't reach the server. Check your connection.".to_string())?;
-    let status = res.status().as_u16();
-    let val: Value = res.json().await.unwrap_or(Value::Null);
-    Ok((status, val))
+const AGENT_PROMPT: &str = include_str!("agent_prompt.txt");
+
+fn tools() -> Value {
+    let t = |name: &str, desc: &str, props: Value, required: &[&str]| {
+        json!({ "type": "function", "function": { "name": name, "description": desc,
+            "parameters": { "type": "object", "properties": props, "required": required } } })
+    };
+    let num = |d: &str| json!({ "type": "number", "description": d });
+    let st = |d: &str| json!({ "type": "string", "description": d });
+    json!([
+        t("list_ui_elements", "List the real interactive controls (buttons, tabs, menu items, text fields) of the frontmost app, by name, in reading order, each with an [id].", json!({}), &[]),
+        t("press_element", "Press a control returned by list_ui_elements (or focus it if it is a text field).", json!({ "id": num("The [id] from list_ui_elements") }), &["id"]),
+        t("click", "Click at a point on the screen.", json!({ "x": num("0-1000 horizontal"), "y": num("0-1000 vertical"), "button": { "type": "string", "enum": ["left", "right"] }, "double": { "type": "boolean" } }), &["x", "y"]),
+        t("type_text", "Type text into a text field. Prefer passing into_id (an [id] from list_ui_elements) so the field is focused and typed into in one step.", json!({ "text": st("The text to type"), "into_id": num("Optional [id] of the field to focus first") }), &["text"]),
+        t("press_key", "Press a key, optionally with modifiers.", json!({ "key": st("return, tab, escape, space, delete, up, down, left, right, or a single character"), "modifiers": { "type": "array", "items": { "type": "string", "enum": ["cmd", "shift", "alt", "ctrl"] } } }), &["key"]),
+        t("scroll", "Scroll the view under the cursor. Positive = down.", json!({ "amount": num("Lines, e.g. 5 or -5") }), &["amount"]),
+        t("wait", "Wait for something to load.", json!({ "seconds": num("1-10") }), &["seconds"]),
+        t("open_url", "Open a URL in the default browser.", json!({ "url": st("Full https:// URL") }), &["url"]),
+        t("open_app", "Launch or focus a macOS app by name.", json!({ "name": st("e.g. Safari, Notes") }), &["name"]),
+        t("list_files", "List a folder inside the user's home directory.", json!({ "path": st("Absolute or ~/ path") }), &["path"]),
+        t("read_file", "Read a text file (max 200 KB).", json!({ "path": st("Absolute or ~/ path") }), &["path"]),
+        t("write_file", "Create or overwrite a text file.", json!({ "path": st("Path"), "content": st("File contents") }), &["path", "content"]),
+        t("make_dir", "Create a folder.", json!({ "path": st("Path") }), &["path"]),
+        t("move_file", "Move or rename a file or folder.", json!({ "from": st("Source path"), "to": st("Destination path") }), &["from", "to"]),
+        t("trash_file", "Move a file or folder to the Trash.", json!({ "path": st("Path") }), &["path"]),
+    ])
 }
 
-/// One planning step. Returns `{type:"call",name,args,note?}` or `{type:"final",answer}`.
+/// One planning step. Returns `{type:"calls",calls:[{name,args}],note?}` or `{type:"final",answer}`.
+/// The app runs the loop; each step asks the local model what to do next.
 #[tauri::command]
 pub async fn agent_step(
     app: AppHandle,
@@ -399,48 +412,52 @@ pub async fn agent_step(
     context: Option<String>,
     history: Vec<Value>,
     screenshot_base64: Option<String>,
-    reasoning: Option<bool>,
+    _reasoning: Option<bool>,
 ) -> Result<Value, String> {
-    let mut token = auth::get_access_token(&app).await.map_err(|_| "Sign in to use Agent Mode.".to_string())?;
-
-    let screenshot = match screenshot_base64 {
-        Some(s) => {
-            let (mime, data) = crate::prepare_image_for_upload_max(&s, AGENT_SCREEN_DIMENSION)?;
-            Some(json!({ "mime": mime, "data": data }))
+    let mut messages = vec![
+        json!({ "role": "system", "content": AGENT_PROMPT }),
+        json!({ "role": "user", "content": format!("{}Goal:\n{}", context.map(|c| c + "\n\n").unwrap_or_default(), goal) }),
+    ];
+    // Rebuild the transcript: each tool call, then its result.
+    for step in history.iter().rev().take(40).rev() {
+        let name = step.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        match step.get("kind").and_then(|k| k.as_str()) {
+            Some("call") => messages.push(json!({ "role": "assistant", "content": "", "tool_calls": [{ "function": { "name": name, "arguments": step.get("args").cloned().unwrap_or(json!({})) } }] })),
+            Some("result") => {
+                let r = step.get("result").and_then(|r| r.as_str()).unwrap_or("");
+                messages.push(json!({ "role": "tool", "tool_name": name, "content": r.chars().take(30_000).collect::<String>() }));
+            }
+            _ => {}
         }
-        None => None,
-    };
-
-    let mut body = json!({
-        "goal": goal,
-        "context": context.unwrap_or_default(),
-        "history": history,
-        "reasoning": reasoning.unwrap_or(false),
-    });
-    if let Some(s) = screenshot {
-        body["screenshot"] = s;
+    }
+    if let Some(s) = screenshot_base64 {
+        let (_, data) = crate::prepare_image_for_upload_max(&s, AGENT_SCREEN_DIMENSION)?;
+        messages.push(json!({ "role": "user", "content": "Current screen:", "images": [data] }));
     }
 
-    let (mut status, mut val) = call_agent(&token, &body).await?;
-    if status == 401 {
-        token = auth::force_refresh(&app).await.map_err(|_| "Please sign in again.".to_string())?;
-        (status, val) = call_agent(&token, &body).await?;
-    }
+    let reply = crate::ollama::chat(&app, json!(messages), Some(tools()), None).await.map_err(|e| e.message)?;
+    let note = reply.get("content").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
+    let calls: Vec<Value> = reply
+        .get("tool_calls")
+        .and_then(|c| c.as_array())
+        .map(|a| a.iter().take(4).filter_map(|c| {
+            let f = c.get("function")?;
+            let args = match f.get("arguments") {
+                Some(Value::String(s)) => serde_json::from_str(s).unwrap_or(json!({})),
+                Some(v) => v.clone(),
+                None => json!({}),
+            };
+            Some(json!({ "name": f.get("name")?, "args": args }))
+        }).collect())
+        .unwrap_or_default();
 
-    match status {
-        200 => Ok(val),
-        403 => Err(if val.get("error").and_then(|e| e.as_str()) == Some("agent_not_available") {
-            "agent_not_available".to_string()
-        } else {
-            "plan_required".to_string()
-        }),
-        429 => Err("limit_reached".to_string()),
-        _ => Err(val
-            .get("message")
-            .and_then(|m| m.as_str())
-            .unwrap_or("The agent hit a snag. Please try again.")
-            .to_string()),
+    if !calls.is_empty() {
+        return Ok(json!({ "type": "calls", "calls": calls, "note": if note.is_empty() { Value::Null } else { json!(note) } }));
     }
+    if note.is_empty() {
+        return Err("The model didn't answer. Try a stronger model in Settings.".into());
+    }
+    Ok(json!({ "type": "final", "answer": note }))
 }
 
 

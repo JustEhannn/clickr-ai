@@ -10,17 +10,10 @@
     "frontendDist": "../dist"
   },
   "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": [
-          "clickr"
-        ]
-      }
-    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEzOTFFRUJDMzFDQTA1MDYKUldRR0Jjb3h2TzZSRTBxNFNIRlUzYklYQ3dxZksrNDAxdWY3M1J1bkNRdENUb2Q5bC9lT3RBLysK",
       "endpoints": [
-        "https://xoebvsthsmrnuusduzfg.supabase.co/storage/v1/object/public/releases/latest.json"
+        "https://github.com/JustEhannn/clickr/releases/latest/download/latest.json"
       ]
     }
   },
@@ -66,11 +59,11 @@
       "entitlements": "Entitlements.plist",
       "signingIdentity": "-"
     },
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "category": "Productivity",
     "copyright": "\u00a9 2026 Clickr",
     "publisher": "Clickr",
     "shortDescription": "The AI copilot that sees your screen",
-    "longDescription": "Clickr is a floating AI copilot for your Mac. Ask about anything on your screen, search the web, analyze files, and (on Pro+) let Agent Mode do tasks for you."
+    "longDescription": "Clickr AI is a free, open-source floating AI copilot for your Mac. Ask about anything on your screen, analyze files, and let Agent Mode do tasks for you. It runs on a free open model on your own computer."
   }
 }

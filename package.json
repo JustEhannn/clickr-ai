@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "app:build": "TAURI_SIGNING_PRIVATE_KEY=\"$(cat ~/.tauri/clickr-updater.key)\" TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build"
+    "tauri": "tauri"
   },
   "dependencies": {
     "@number-flow/react": "^0.6.2",
@@ -37,5 +36,6 @@
     "@vitejs/plugin-react": "^6.0.2",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
-  }
+  },
+  "description": "Clickr AI: a free, open-source floating AI copilot for macOS that runs on a local model"
 }

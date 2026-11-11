@@ -17,10 +17,10 @@ import rehypeKatex from "rehype-katex";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import PricingModal from "./PricingModal";
 import { agentBetaKey, onboardingKey } from "./storage";
 import { reportProblem } from "./bugReport";
-import { canUse, canAttachFile, FILE_ACCEPT_ALL, type Feature, type Tier } from "./tiers";
+import SetupAI from "./SetupAI";
+import { canUse, FILE_ACCEPT_ALL, type Tier } from "./tiers";
 import {
   describeCall,
   endsBatch,
@@ -46,8 +46,6 @@ type Message = {
   kind?: "step";
   stepId?: string;
   stepStatus?: "running" | "done" | "error" | "denied";
-  /** Automated limit reply on the Free plan: show an Upgrade button. */
-  upgradeCta?: boolean;
   /** An agent step line that is the model's own commentary rather than an action. */
   isNote?: boolean;
   /** Set while an answer is still arriving word by word. */
@@ -55,14 +53,13 @@ type Message = {
   streaming?: boolean;
 };
 
-type CustomModel = { id: string; name: string; provider: string; model_id: string };
 type ApprovalDecision = "approve" | "approve_all" | "deny" | "stop";
 
 
 // Elements that make up the clickable UI. Everything else in the window is
 // transparent and must let clicks through to the apps behind.
 const CLICKABLE_SELECTOR =
-  ".cue-toolbar, .cue-panel, .settings-popover, .pricing-modal-overlay, .permissions-overlay, .agent-beta-overlay";
+  ".cue-toolbar, .cue-panel, .settings-popover, .permissions-overlay, .agent-beta-overlay";
 
 type ChatHistoryEntry = {
   id: string;
@@ -334,16 +331,6 @@ function questionNeedsScreenshot(question: string) {
  * Web search is quota-limited per plan, so only ask for it when the question
  * is plainly about something live or external.
  */
-function questionNeedsWeb(question: string) {
-  const q = question.toLowerCase();
-  return [
-    /\b(latest|news|today|tonight|yesterday|tomorrow|this (?:week|month|year)|right now|currently|recent(?:ly)?)\b/,
-    /\b(price|stock|weather|forecast|score|standings|release date|exchange rate|trending)\b/,
-    /\b(who won|who is the (?:current|new)|what happened)\b/,
-    /\b(search|look up|google|browse the web|find online)\b/,
-    /https?:\/\/|www\./,
-  ].some((r) => r.test(q));
-}
 
 // History is stored per account. (It used to be one shared key, so a second account on the
 // same Mac could see the first one's conversations.)
@@ -395,23 +382,8 @@ function titleFromMessage(text: string) {
   return words.join(" ") || "New chat";
 }
 
-function formatDuration(ms: number) {
-  const totalMinutes = Math.max(1, Math.ceil(ms / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
-}
 
 /** "2 hrs 15 mins", "1 hr", "40 mins" */
-function formatReset(ms: number) {
-  const totalMinutes = Math.max(1, Math.ceil(ms / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const h = hours > 0 ? `${hours} ${hours === 1 ? "hr" : "hrs"}` : "";
-  const m = minutes > 0 ? `${minutes} ${minutes === 1 ? "min" : "mins"}` : "";
-  return [h, m].filter(Boolean).join(" ");
-}
 
 type Memory = { id: string; content: string };
 
@@ -419,18 +391,6 @@ function clip(text: string, max: number) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-function getDeviceId(): string {
-  try {
-    let id = localStorage.getItem("clickr-device-id");
-    if (!id) {
-      id = crypto.randomUUID();
-      localStorage.setItem("clickr-device-id", id);
-    }
-    return id;
-  } catch {
-    return "unknown-device";
-  }
-}
 
 /** True when the last actions are the same short sequence repeated three times. */
 function isCycle(actions: string[]) {
@@ -474,8 +434,7 @@ export default function App() {
   );
   
 
-  const [currentTier, setCurrentTier] = useState<Tier | null>(null);
-  const effectiveTier: Tier = currentTier ?? "free";
+  const effectiveTier: Tier = "pro_plus"; // everything is free and unlocked
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -497,12 +456,7 @@ export default function App() {
   const assistHandlerRef = useRef<() => void>(() => {});
   const historyPopoverRef = useRef<HTMLDivElement>(null);
 
-  const [limitReachedUntil, setLimitReachedUntil] = useState<number | null>(null);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
-  const [pricingModalOpen, setPricingModalOpen] = useState(false);
-  const [awaitingPurchase, setAwaitingPurchase] = useState(false);
-  const [uiHidden, setUiHidden] = useState(false);
   const [crashNotice, setCrashNotice] = useState<string | null>(null);
   const [agentBetaOpen, setAgentBetaOpen] = useState(false);
   const [agentAccessStep, setAgentAccessStep] = useState(false);
@@ -513,7 +467,6 @@ export default function App() {
   const [online, setOnline] = useState(() => navigator.onLine);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [historyQuery, setHistoryQuery] = useState("");
-  const [nowTick, setNowTick] = useState(() => Date.now());
   const [userId, setUserId] = useState<string | null>(null);
 
   const sessionIdRef = useRef<string>(
@@ -522,19 +475,11 @@ export default function App() {
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
 
-  const [deviceBlocked, setDeviceBlocked] = useState(false);
-  const [takingOver, setTakingOver] = useState(false);
-  const [agentAllowed, setAgentAllowed] = useState<boolean | null>(null);
 
-  // Pro+ state
-  const [pricingFeature, setPricingFeature] = useState<Feature | null>(null);
-  const [customModels, setCustomModels] = useState<CustomModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>(
-    () => localStorage.getItem("clickr-selected-model") || "default",
-  );
+  const [ollama, setOllama] = useState<{ models: { name: string; size: number }[]; active: string | null }>({ models: [], active: null });
+  const [setupOpen, setSetupOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [agentMode, setAgentMode] = useState(false);
-  const [reasoningOn, setReasoningOn] = useState(false);
   const [agentRunning, setAgentRunning] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<{ call: AgentCall; text: string } | null>(null);
   const approvalResolverRef = useRef<((d: ApprovalDecision) => void) | null>(null);
@@ -546,120 +491,15 @@ export default function App() {
 
   const busy = status !== "idle";
   const hasMessages = messages.length > 0;
-  const remainingMs = limitReachedUntil ? limitReachedUntil - nowTick : 0;
-  const isLimited = limitReachedUntil !== null && remainingMs > 0;
   const updateClickableRectRef = useRef<() => Promise<void>>(async () => {});
   const clickDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Local app: there is one local user and nothing to sign in to.
   useEffect(() => {
-    if (!limitReachedUntil) return;
-    const interval = window.setInterval(() => setNowTick(Date.now()), 15_000);
-    return () => window.clearInterval(interval);
-  }, [limitReachedUntil]);
-
-  useEffect(() => {
-    if (limitReachedUntil && nowTick >= limitReachedUntil) {
-      setLimitReachedUntil(null);
-      setBannerDismissed(false);
-    }
-  }, [nowTick, limitReachedUntil]);
-
-  // Session and plan both depend on sign-in finishing, which happens after
-  // this window mounts (the panel is created hidden at launch). Reload both
-  // whenever the session changes so we never get stuck on "free"/null user.
-  useEffect(() => {
-    const loadSession = () =>
-      invoke<{ user_id: string | null }>("get_session")
-        .then((s) => setUserId(s.user_id))
-        .catch(() => {});
-
-    const loadTier = async () => {
-      try {
-        const subscription = await invoke<{ tier: Tier }>("get_subscription");
-        setCurrentTier(subscription.tier);
-      } catch (error) {
-        console.warn("Couldn't load plan:", error);
-        // Signed in but no row / fetch failed → treat as free, but only
-        // once we know who we are; otherwise stay "unknown".
-        const s = await invoke<{ signed_in: boolean }>("get_session").catch(() => ({ signed_in: false }));
-        setCurrentTier(s.signed_in ? "free" : null);
-      }
-    };
-
-    void loadSession();
-    void loadTier();
-
-    const unlisteners = [
-      listen("subscription-updated", () => {
-        void loadTier();
-        // Coming back from the browser (the "Open Clickr" button) ends the waiting state.
-        if (uiHiddenRef.current) void restoreAfterPurchaseRef.current();
-      }),
-      listen("session-updated", () => {
-        void loadSession();
-        void loadTier();
-      }),
-    ];
-
-    return () => {
-      unlisteners.forEach((p) => void p.then((fn) => fn()));
-    };
-  }, []);
-
-  // While the user pays in the browser the chat is hidden behind a small status pill,
-  // so it isn't in the way. This brings everything back.
-  async function hideForPurchase() {
-    setUiHidden(true);
-    await invoke("set_agent_hidden", { hidden: true }).catch(() => {});
-    await invoke("agent_bar_show").catch(() => {});
-    void emit("agent-status", { text: "Finish upgrading in your browser…", stopLabel: "Back to Clickr" });
-  }
-
-  async function restoreAfterPurchase() {
-    setAwaitingPurchase(false);
-    setUiHidden(false);
-    setPricingModalOpen(false);
-    setPricingFeature(null);
-    setPanelVisible(true);
-    await invoke("agent_restore");
-  }
-  const uiHiddenRef = useRef(false);
-  uiHiddenRef.current = uiHidden;
-  const restoreAfterPurchaseRef = useRef(restoreAfterPurchase);
-  restoreAfterPurchaseRef.current = restoreAfterPurchase;
-
-  // After sending the user to the website to pay, watch for the new plan so the app
-  // unlocks within seconds of the payment instead of waiting for a restart.
-  useEffect(() => {
-    if (!awaitingPurchase) return;
-    const startedWith = currentTier;
-    const started = Date.now();
-    const timer = window.setInterval(() => {
-      if (Date.now() - started > 20 * 60_000) {
-        void restoreAfterPurchaseRef.current();
-        return;
-      }
-      invoke<{ tier: Tier }>("get_subscription")
-        .then((sub) => {
-          if (sub.tier !== startedWith) {
-            setCurrentTier(sub.tier);
-            void restoreAfterPurchaseRef.current();
-          }
-        })
-        .catch(() => {});
-    }, 4000);
-    return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [awaitingPurchase]);
-
-  // Re-check the plan every time the pricing modal opens, so "Current Plan"
-  // is never stale.
-  useEffect(() => {
-    if (!pricingModalOpen) return;
-    invoke<{ tier: Tier }>("get_subscription")
-      .then((sub) => setCurrentTier(sub.tier))
+    invoke<{ user_id: string | null }>("get_session")
+      .then((s) => setUserId(s.user_id))
       .catch(() => {});
-  }, [pricingModalOpen]);
+  }, []);
 
   useEffect(() => {
     // Sends the clickable area RELATIVE to the window. The native side adds the
@@ -813,22 +653,11 @@ export default function App() {
     };
   }, []);
 
-  /** Opens the pricing modal with a "<feature> is a <plan> feature" banner. */
-  function promptUpgrade(feature: Feature | null) {
-    setPricingFeature(feature);
-    setPanelVisible(true);
-    setPricingModalOpen(true);
-  }
-
   const MAX_ATTACHMENTS = 4;
 
-  /** Adds a file to the message. Free accounts get one; Pro and above up to four. */
+  /** Adds a file to the message (up to four). */
   function addAttachment(att: Attachment, countAlready = 0): boolean {
     const have = attachmentsRef.current.length + countAlready;
-    if (have >= 1 && !canUse(effectiveTier, "multiFile")) {
-      promptUpgrade("multiFile");
-      return false;
-    }
     if (have >= MAX_ATTACHMENTS) {
       setBlockedNotice(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
       window.setTimeout(() => setBlockedNotice(null), 3000);
@@ -847,10 +676,6 @@ export default function App() {
     });
 
   async function handleDroppedFile(path: string) {
-    if (!canAttachFile(effectiveTier, path)) {
-      promptUpgrade("advancedFiles");
-      return;
-    }
     setUploadProgress(0);
 
     try {
@@ -871,8 +696,9 @@ export default function App() {
   useEffect(() => {
     let cleanup: (() => void) | undefined;
 
-    void listen<{ feature?: Feature } | null>("open-pricing-modal", (event) => {
-      promptUpgrade(event.payload?.feature ?? null);
+    void listen("open-ai-setup", () => {
+      setPanelVisible(true);
+      setSetupOpen(true);
     }).then((fn) => {
       cleanup = fn;
     });
@@ -888,7 +714,7 @@ export default function App() {
    */
   useEffect(() => {
     // Needs a signed-in account (the guide is remembered per account) and a visible panel.
-    if (screenRecordingGranted !== true || !userId || !panelVisible) return;
+    if (screenRecordingGranted !== true || !userId || !panelVisible || setupOpen) return;
 
     const completed = localStorage.getItem(onboardingKey(userId)) === "true";
 
@@ -899,7 +725,7 @@ export default function App() {
 
       return () => window.clearTimeout(timer);
     }
-  }, [screenRecordingGranted, userId, panelVisible]);
+  }, [screenRecordingGranted, userId, panelVisible, setupOpen]);
 
   /*
    * AI health.
@@ -907,119 +733,34 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
+    // On the very first check, an AI that isn't ready (no Ollama, no model yet) starts the setup
+    // step of onboarding; later checks only update the status dot.
+    let first = true;
     async function checkAI() {
+      const isFirst = first;
+      first = false;
       try {
         await invoke("check_ai");
         if (!cancelled) setAiHealth("healthy");
       } catch (error) {
         console.warn("AI health check failed:", error);
-        // Not signed in yet is not an AI problem; the session event re-runs this.
-        if (!cancelled) setAiHealth(error === "not_signed_in" ? "unknown" : "error");
+        if (!cancelled) {
+          setAiHealth("error");
+          if (isFirst) setSetupOpen(true);
+        }
       }
+      void refreshOllama();
     }
 
     void checkAI();
 
-    // Re-check once sign-in completes, and every few minutes after.
-    const un = listen("session-updated", () => void checkAI());
-    const timer = window.setInterval(() => void checkAI(), 5 * 60_000);
+    const timer = window.setInterval(() => void checkAI(), 60_000);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      void un.then((fn) => fn());
     };
   }, []);
-
-  /*
-   * Single-device enforcement (Free). Runs once the plan is known.
-   */
-  useEffect(() => {
-    if (!userId) {
-      setDeviceBlocked(false);
-      return;
-    }
-    if (currentTier === null) return;
-    invoke<boolean>("register_device", { deviceId: getDeviceId(), tier: currentTier })
-      .then((allowed) => setDeviceBlocked(!allowed))
-      .catch(() => setDeviceBlocked(false));
-
-    // Re-check periodically so a device that was signed out elsewhere notices.
-    const timer = window.setInterval(() => {
-      invoke<boolean>("register_device", { deviceId: getDeviceId(), tier: currentTier })
-        .then((allowed) => setDeviceBlocked(!allowed))
-        .catch(() => {});
-    }, 5 * 60_000);
-    return () => window.clearInterval(timer);
-  }, [currentTier, userId]);
-
-  async function takeOverDevice() {
-    setTakingOver(true);
-    try {
-      await invoke("take_over_device", { deviceId: getDeviceId() });
-      setDeviceBlocked(false);
-    } catch (e) {
-      console.warn("Take-over failed:", e);
-    } finally {
-      setTakingOver(false);
-    }
-  }
-
-  /*
-   * Conversation history sync across devices (Pro): merge what's in the
-   * cloud into local history whenever we learn the user is Pro.
-   */
-  const syncsHistory = canUse(effectiveTier, "historySync");
-  useEffect(() => {
-    if (!syncsHistory || !userId) return;
-    invoke<ChatHistoryEntry[]>("pull_history")
-      .then((remote) => {
-        setChatHistory((local) => {
-          const byId = new Map(local.map((e) => [e.id, e]));
-          for (const r of remote) {
-            const mine = byId.get(r.id);
-            if (!mine || r.updatedAt > mine.updatedAt) byId.set(r.id, r);
-          }
-          const merged = [...byId.values()]
-            .sort((a, b) => b.updatedAt - a.updatedAt)
-            .slice(0, MAX_HISTORY_ENTRIES);
-          saveChatHistory(merged, userIdRef.current);
-          return merged;
-        });
-      })
-      .catch((e) => console.warn("History pull failed:", e));
-  }, [syncsHistory, userId]);
-
-  /*
-   * Pro+: custom models for the model picker, kept in sync with Settings.
-   */
-  const customModelsUnlocked = canUse(effectiveTier, "customModels");
-  useEffect(() => {
-    if (!customModelsUnlocked || !userId) {
-      setCustomModels([]);
-      return;
-    }
-    const load = () =>
-      invoke<CustomModel[]>("list_custom_models")
-        .then(setCustomModels)
-        .catch(() => setCustomModels([]));
-    void load();
-    const un = listen("models-updated", () => void load());
-    return () => {
-      void un.then((fn) => fn());
-    };
-  }, [customModelsUnlocked, userId]);
-
-  // Agent Mode is rolled out gradually; ask the server whether it's on for us.
-  useEffect(() => {
-    if (!canUse(effectiveTier, "agentMode") || !userId) {
-      setAgentAllowed(null);
-      return;
-    }
-    invoke<boolean>("agent_access")
-      .then(setAgentAllowed)
-      .catch(() => setAgentAllowed(false));
-  }, [effectiveTier, userId]);
 
   // If a previous run was interrupted (crash, reload), never start with an invisible chat.
   useEffect(() => {
@@ -1068,7 +809,7 @@ export default function App() {
       await invoke("restart_app");
     } catch {
       setUpdating(false);
-      setBlockedNotice("The update didn't install. Please try again, or download it from clickrai.com.");
+      setBlockedNotice("The update didn't install. Please try again, or download it from GitHub.");
       window.setTimeout(() => setBlockedNotice(null), 6000);
     }
   }
@@ -1156,7 +897,7 @@ export default function App() {
   // Put the cursor in the message box whenever the chat appears or a reply finishes, so you can
   // just start typing.
   const overlayOpenRef = useRef(false);
-  overlayOpenRef.current = pricingModalOpen || agentBetaOpen || tourActive || agentRunning;
+  overlayOpenRef.current = agentBetaOpen || setupOpen || tourActive || agentRunning;
   useEffect(() => {
     const focusInput = () => {
       if (overlayOpenRef.current) return;
@@ -1191,8 +932,8 @@ export default function App() {
       invoke<boolean>("check_accessibility")
         .then((ok) => {
           if (!ok) return;
-          window.clearInterval(timer);
           setAxGranted(true);
+          window.clearInterval(timer);
           window.setTimeout(() => {
             setAgentBetaOpen(false);
             setAgentAccessStep(false);
@@ -1227,13 +968,6 @@ export default function App() {
     };
   }, []);
 
-  // Drop Pro+ modes if the plan changes underneath us.
-  useEffect(() => {
-    if (!canUse(effectiveTier, "agentMode")) {
-      setAgentMode(false);
-      setReasoningOn(false);
-    }
-  }, [effectiveTier]);
 
   // Close the model dropdown on outside click.
   useEffect(() => {
@@ -1246,20 +980,18 @@ export default function App() {
   }, [modelMenuOpen]);
 
   /*
-   * Restore shortcuts. Custom hotkeys are a Pro feature; other tiers always
-   * get the defaults (the saved choice is kept for if they upgrade).
+   * Restore the saved shortcuts when the app starts.
    */
-  const hotkeysUnlocked = canUse(effectiveTier, "customHotkeys");
   useEffect(() => {
     void invoke("set_global_shortcuts", {
-      toggleShortcut: hotkeysUnlocked ? shortcut : DEFAULT_TOGGLE_SHORTCUT,
-      assistShortcut: hotkeysUnlocked ? assistShortcut : DEFAULT_ASSIST_SHORTCUT,
+      toggleShortcut: shortcut,
+      assistShortcut,
       fallbackToggleShortcut: DEFAULT_TOGGLE_SHORTCUT,
       fallbackAssistShortcut: DEFAULT_ASSIST_SHORTCUT,
     }).catch((error) => {
       console.error("Failed to register global shortcuts:", error);
     });
-  }, [shortcut, assistShortcut, hotkeysUnlocked]);
+  }, [shortcut, assistShortcut]);
 
   /*
    * Receive settings changes from the
@@ -1353,7 +1085,7 @@ export default function App() {
 
   /*
    * Background the model gets with every question. Free: device context and
-   * recent turns. Pro adds the active app, saved memories and a longer window.
+   * recent turns. 
    */
   const memoryCacheRef = useRef<{ at: number; data: Memory[] } | null>(null);
 
@@ -1460,62 +1192,22 @@ export default function App() {
   }
 
 
-  const activeCustomModel =
-    canUse(effectiveTier, "customModels") && customModels.some((m) => m.id === selectedModel)
-      ? selectedModel
-      : undefined;
-  const reasoningActive = reasoningOn && canUse(effectiveTier, "reasoning") && !activeCustomModel;
-  const activeModelName = activeCustomModel
-    ? customModels.find((m) => m.id === activeCustomModel)!.name
-    : "Clickr AI";
-
-  /*
-   * Free users get the "Limit resets in … / Upgrade now" popup above the chat
-   * box. Paid plans don't see an upsell; they just get a plain notice.
-   */
-  function limitReply(ms: number): Message {
-    const wait = formatReset(ms);
-    return effectiveTier === "free"
-      ? {
-          role: "assistant",
-          text: `You've reached your free limit. Please wait **${wait}** for it to reset, or upgrade to continue the conversation now.`,
-          upgradeCta: true,
-        }
-      : {
-          role: "assistant",
-          text: `You've reached your usage limit for now. It resets in **${wait}**.`,
-        };
+  async function refreshOllama() {
+    const st = await invoke<{ models: { name: string; size: number }[]; active: string | null }>("ollama_status").catch(() => null);
+    if (st) setOllama({ models: st.models, active: st.active });
   }
 
-  function onLimitReached(retryAfterSeconds?: number) {
-    const seconds = retryAfterSeconds ?? 3600;
-    setLimitReachedUntil(Date.now() + seconds * 1000);
-    setBannerDismissed(false);
-    // The message the user just sent gets an automated answer instead of silence.
-    setMessages((prev) => [...prev, limitReply(seconds * 1000)]);
-  }
+  const activeModelName = ollama.active ?? "Choose an AI model";
 
   function handleAskError(error: unknown) {
-    const askErr = error as { kind?: string; message?: string; retry_after_seconds?: number } | string;
+    const askErr = error as { kind?: string; message?: string } | string;
     const e = typeof askErr === "string" ? { message: askErr } : askErr;
 
     if (e.kind === "not_signed_in" || e.kind === "cancelled") return;
 
-    if (e.kind === "limit_reached") {
-      onLimitReached(e.retry_after_seconds);
-      return;
-    }
-
-    if (e.message === "agent_not_available") {
-      setAgentAllowed(false);
-      setAgentMode(false);
-      setBlockedNotice("Agent Mode is rolling out gradually and isn't on for your account yet.");
-      window.setTimeout(() => setBlockedNotice(null), 4000);
-      return;
-    }
-
-    if (e.kind === "plan_required" || e.message === "plan_required") {
-      promptUpgrade(activeCustomModel ? "customModels" : reasoningActive ? "reasoning" : "agentMode");
+    if (e.kind === "setup_needed") {
+      setAiHealth("error");
+      setSetupOpen(true);
       return;
     }
 
@@ -1527,7 +1219,7 @@ export default function App() {
   }
 
   /* ---------------------------------------------------------
-     AGENT MODE (Pro+)
+     AGENT MODE
      --------------------------------------------------------- */
 
   function askApproval(call: AgentCall): Promise<ApprovalDecision> {
@@ -1609,20 +1301,11 @@ export default function App() {
   }
 
   function stopAgent() {
-    // Not an agent run: this is the "Back to Clickr" button (or the hotkey) while waiting for a purchase.
-    if (!agentRunning && uiHidden) {
-      void restoreAfterPurchase();
-      return;
-    }
     agentCancelRef.current = true;
     if (approvalResolverRef.current) resolveApproval("stop");
   }
 
   async function runAgent(goal: string) {
-    if (!canUse(effectiveTier, "agentMode")) {
-      promptUpgrade("agentMode");
-      return;
-    }
 
     agentCancelRef.current = false;
     setAgentRunning(true);
@@ -1674,7 +1357,6 @@ export default function App() {
           context,
           history,
           screenshotBase64: shot,
-          reasoning: reasoningActive,
         });
         shot = undefined;
 
@@ -1846,12 +1528,6 @@ export default function App() {
    * Assist ALWAYS uses a screenshot.
    */
   async function handleAssist() {
-   if (isLimited) {
-     setBannerDismissed(false);
-     setMessages((prev) => [...prev, { role: "user", text: "Help me with this" }, limitReply(remainingMs)]);
-     return;
-    }
-
     if (busy || tourActive) return;
 
     setMessages((prev) => [...prev, { role: "user", text: "Help me with this" }]);
@@ -1871,18 +1547,16 @@ export default function App() {
         question: "Help me with this.",
         screenshotBase64: screenshot,
         context,
-        webSearch: false,
-        customModelId: activeCustomModel,
-        reasoning: reasoningActive,
       });
 
       setAiHealth("healthy");
     } catch (error) {
-      const askErr = error as { kind?: string; message?: string; retry_after_seconds?: number };
+      const askErr = error as { kind?: string; message?: string };
 
-      if (askErr.kind === "not_signed_in" || askErr.kind === "cancelled") {
-      } else if (askErr.kind === "limit_reached") {
-        onLimitReached(askErr.retry_after_seconds);
+      if (askErr.kind === "cancelled") {
+      } else if (askErr.kind === "setup_needed") {
+        setAiHealth("error");
+        setSetupOpen(true);
       } else {
         setAiHealth("error");
         setMessages((prev) => [
@@ -2045,23 +1719,14 @@ export default function App() {
     const typedInput = override?.text ?? input;
     const sendAttachments = override?.attachments ?? attachments;
 
-    if (isLimited) {
-      const typed = typedInput.trim();
-      if (!typed || tourActive) return;
-      setBannerDismissed(false);
-      setInput("");
-      setMessages((prev) => [...prev, { role: "user", text: typed }, limitReply(remainingMs)]);
-      return;
-    }
     if (!typedInput.trim() || busy || tourActive) return;
 
     const question = typedInput.trim();
 
-    // "Remember …" saves a memory (Pro). Free users get an upgrade nudge but
-    // the message still goes to the AI as normal.
+    // "Remember …" saves a memory; if saving fails the message still goes to the AI as normal.
     const rememberMatch = question.match(/^remember(?: that)?[:,]?\s+(.{3,})$/i);
     if (rememberMatch) {
-      if (canUse(effectiveTier, "memory")) {
+      {
         try {
           await invoke("add_memory", { content: rememberMatch[1] });
           memoryCacheRef.current = null;
@@ -2075,8 +1740,6 @@ export default function App() {
         } catch (error) {
           console.warn("Couldn't save memory:", error);
         }
-      } else {
-        promptUpgrade("memory");
       }
     }
 
@@ -2113,9 +1776,6 @@ export default function App() {
         screenshotBase64: screenshot,
         attachedImagesBase64: sendAttachments.length ? sendAttachments.map((a) => a.dataUrl) : undefined,
         context,
-        webSearch: questionNeedsWeb(question),
-        customModelId: activeCustomModel,
-        reasoning: reasoningActive,
       });
 
       setAiHealth("healthy");
@@ -2165,10 +1825,6 @@ export default function App() {
     setUploadProgress(30);
     let added = 0;
     for (const file of files) {
-      if (!canAttachFile(effectiveTier, file.name)) {
-        promptUpgrade("advancedFiles");
-        break;
-      }
       try {
         const dataUrl = await readDataUrl(file);
         if (!addAttachment({ dataUrl, name: file.type.startsWith("image/") ? undefined : file.name }, added)) break;
@@ -2219,7 +1875,7 @@ export default function App() {
     setHistoryOpen(false);
   }
 
-  /** Starts a fresh conversation (the old one stays in history on Pro). */
+  /** Starts a fresh conversation (the old one stays in history). */
   function startNewChat() {
     if (busy || agentRunning) return;
     setMessages([]);
@@ -2273,7 +1929,7 @@ export default function App() {
   }
 
   return (
-    <main className={`clickr-root ${tourActive ? "touring" : ""} ${agentRunning || uiHidden ? "agent-running" : ""}`}>
+    <main className={`clickr-root ${tourActive ? "touring" : ""} ${agentRunning ? "agent-running" : ""}`}>
       <header 
         className={`cue-toolbar`}
         onMouseDown={handleDrag}>
@@ -2340,41 +1996,47 @@ export default function App() {
                 <div className="model-picker" ref={modelMenuRef}>
                   <button
                     type="button"
-                    className={`model-trigger ${customModelsUnlocked ? "interactive" : ""} ${modelMenuOpen ? "open" : ""}`}
-                    disabled={!customModelsUnlocked}
+                    className={`model-trigger interactive ${modelMenuOpen ? "open" : ""}`}
                     {...makeSafeClickHandlers(clickDownPosRef, () => setModelMenuOpen((o) => !o))}
                   >
                     <span className="model-name">{activeModelName}</span>
-                    {customModelsUnlocked && (
-                      <span className="model-chevron">
-                        <Icon name="chevron" size={11} />
-                      </span>
-                    )}
+                    <span className="model-chevron">
+                      <Icon name="chevron" size={11} />
+                    </span>
                   </button>
 
-                  {modelMenuOpen && customModelsUnlocked && (
+                  {modelMenuOpen && (
                     <div className="model-menu">
-                      {[{ id: "default", name: "Clickr AI", sub: "Default" }, ...customModels.map((m) => ({ id: m.id, name: m.name, sub: m.model_id }))].map((m) => (
+                      {ollama.models.map((m) => (
                         <button
-                          key={m.id}
+                          key={m.name}
                           type="button"
-                          className={`model-menu-item ${(activeCustomModel ?? "default") === m.id ? "selected" : ""}`}
+                          className={`model-menu-item ${ollama.active === m.name ? "selected" : ""}`}
                           {...makeSafeClickHandlers(clickDownPosRef, () => {
-                            setSelectedModel(m.id);
-                            localStorage.setItem("clickr-selected-model", m.id);
+                            void invoke("ollama_set_model", { model: m.name }).then(() => void refreshOllama());
                             setModelMenuOpen(false);
                           })}
                         >
                           <span className="model-menu-text">
                             <span className="model-menu-name">{m.name}</span>
-                            <span className="model-menu-sub">{m.sub}</span>
+                            <span className="model-menu-sub">{(m.size / 1e9).toFixed(1)} GB</span>
                           </span>
-                          {(activeCustomModel ?? "default") === m.id && <Icon name="check" size={13} />}
+                          {ollama.active === m.name && <Icon name="check" size={13} />}
                         </button>
                       ))}
-                      {customModels.length === 0 && (
-                        <div className="model-menu-empty">Add your own models in Settings → AI.</div>
-                      )}
+                      <button
+                        type="button"
+                        className="model-menu-item"
+                        {...makeSafeClickHandlers(clickDownPosRef, () => {
+                          setModelMenuOpen(false);
+                          setSetupOpen(true);
+                        })}
+                      >
+                        <span className="model-menu-text">
+                          <span className="model-menu-name">Get more models…</span>
+                          <span className="model-menu-sub">Compare sizes and download</span>
+                        </span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -2541,16 +2203,7 @@ export default function App() {
                                 {message.text}
                               </ReactMarkdown>
                             )}
-                            {message.upgradeCta && (
-                              <button
-                                type="button"
-                                className="limit-upgrade-button inline-upgrade"
-                                {...makeSafeClickHandlers(clickDownPosRef, () => promptUpgrade(null))}
-                              >
-                                Upgrade
-                              </button>
-                            )}
-                            {!message.isError && !message.streaming && !message.upgradeCta && (
+                            {!message.isError && !message.streaming && (
                               <div className="msg-actions">
                                 <button
                                   type="button"
@@ -2618,30 +2271,6 @@ export default function App() {
 
               </div>
               
-
-            {isLimited && !bannerDismissed && effectiveTier === "free" && (
-              <div className="limit-banner">
-                <div className="limit-banner-text">
-                  <strong>Limit Reached.</strong>
-                  <span>Try again in {formatDuration(remainingMs)}.</span>
-                  <button
-                    type="button"
-                    className="limit-upgrade-button"
-                    {...makeSafeClickHandlers(clickDownPosRef, () => promptUpgrade(null))}
-                  >
-                    Upgrade to chat more
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="limit-banner-close"
-                  {...makeSafeClickHandlers(clickDownPosRef, () => setBannerDismissed(true))}
-                  aria-label="Dismiss"
-                >
-                  <Icon name="x" size={11} />
-                </button>
-              </div>
-            )}
 
             {updateInfo && (
               <div className="update-bar">
@@ -2859,13 +2488,9 @@ export default function App() {
                   <button
                     className="composer-icon"
                     type="button"
-                    title={canUse(effectiveTier, "history") ? "Conversation history" : "Conversation history (Pro)"}
+                    title="Conversation history"
                     data-history-trigger="true"
                     {...makeSafeClickHandlers(clickDownPosRef, () => {
-                      if (!canUse(effectiveTier, "history")) {
-                        promptUpgrade("history");
-                        return;
-                      }
                       setHistoryOpen((open) => !open);
                     })}
                   >
@@ -2883,27 +2508,17 @@ export default function App() {
                   </button>
 
                   <button
-                    className={`composer-icon mode-toggle ${agentMode ? "on" : ""} ${canUse(effectiveTier, "agentMode") && agentAllowed !== false ? "" : "locked"}`}
+                    className={`composer-icon mode-toggle ${agentMode ? "on" : ""}`}
                     type="button"
-                    title={!canUse(effectiveTier, "agentMode") ? "Agent Mode (Pro+)" : agentAllowed === false ? "Agent Mode (temporarily unavailable)" : agentMode ? "Agent Mode: on" : "Agent Mode"}
+                    title={agentMode ? "Agent Mode: on" : "Agent Mode"}
                     disabled={agentRunning}
                     {...makeSafeClickHandlers(clickDownPosRef, () => {
-                      if (!canUse(effectiveTier, "agentMode")) {
-                        promptUpgrade("agentMode");
-                        return;
-                      }
-                      if (agentAllowed === false) {
-                        setBlockedNotice("Agent Mode is temporarily unavailable. Please try again later.");
-                        window.setTimeout(() => setBlockedNotice(null), 5000);
-                        return;
-                      }
                       if (agentMode) {
                         setAgentMode(false);
                         return;
                       }
-                      // Beta notice first: the mode only switches on once "I understand" is pressed.
-                      const accepted = !!userId && localStorage.getItem(agentBetaKey(userId)) === "true";
-                      if (accepted) void turnOnAgent();
+                      // Notice first: the mode only switches on once "I understand" is pressed.
+                      if (localStorage.getItem(agentBetaKey("local")) === "true") void turnOnAgent();
                       else {
                         setAgentAccessStep(false);
                         setAgentBetaOpen(true);
@@ -2911,21 +2526,6 @@ export default function App() {
                     })}
                   >
                     <Icon name="agent" size={15} />
-                  </button>
-
-                  <button
-                    className={`composer-icon mode-toggle ${reasoningActive ? "on" : ""} ${canUse(effectiveTier, "reasoning") ? "" : "locked"}`}
-                    type="button"
-                    title={canUse(effectiveTier, "reasoning") ? (reasoningOn ? "Advanced reasoning: on" : "Advanced reasoning") : "Advanced reasoning (Pro+)"}
-                    {...makeSafeClickHandlers(clickDownPosRef, () => {
-                      if (!canUse(effectiveTier, "reasoning")) {
-                        promptUpgrade("reasoning");
-                        return;
-                      }
-                      setReasoningOn((on) => !on);
-                    })}
-                  >
-                    <Icon name="bolt" size={15} />
                   </button>
 
                   <div className="composer-spacer" />
@@ -3057,35 +2657,15 @@ export default function App() {
         </section>
       )}
 
-      {deviceBlocked && (
-        <div className="pricing-modal-overlay">
-          <div className="pricing-modal device-blocked-card">
-            <div className="pricing-modal-title">Free plan is limited to one device</div>
-            <div className="pricing-modal-subtitle" style={{ margin: "8px 0 16px" }}>
-              This account is already registered on another device. You can switch Clickr to this device, or upgrade to Pro to use several at once.
-            </div>
-            <button
-              className="pricing-card-cta device-primary"
-              type="button"
-              disabled={takingOver}
-              onClick={() => void takeOverDevice()}
-            >
-              {takingOver ? "Switching…" : "Use Clickr here instead"}
-            </button>
-            <div className="device-hint">This signs out your other device.</div>
-            <button className="pricing-card-cta" style={{ marginTop: 8 }} type="button" onClick={() => promptUpgrade("multiDevice")}>
-              Upgrade to use both
-            </button>
-            <button
-              className="pricing-card-cta"
-              style={{ marginTop: 8 }}
-              type="button"
-              onClick={() => void invoke("sign_out")}
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
+      {setupOpen && (
+        <SetupAI
+          onClose={() => setSetupOpen(false)}
+          onDone={() => {
+            setSetupOpen(false);
+            setAiHealth("healthy");
+            void refreshOllama();
+          }}
+        />
       )}
 
       {agentBetaOpen && (
@@ -3170,23 +2750,6 @@ export default function App() {
         </div>
       )}
 
-      {pricingModalOpen && (
-        <PricingModal
-          userId={userId}
-          currentTier={currentTier}
-          feature={pricingFeature}
-          onPurchaseStarted={() => {
-            setAwaitingPurchase(true);
-            setPricingModalOpen(false);
-            void hideForPurchase();
-          }}
-          onClose={() => {
-            setPricingModalOpen(false);
-            setPricingFeature(null);
-          }}
-        />
-      )}
-      
       {isDraggingFile && (
         <div className="drop-zone-overlay">
           <div className="drop-zone-box">

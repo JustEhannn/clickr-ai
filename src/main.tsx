@@ -3,7 +3,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import SettingsApp from "./SettingsApp";
-import AuthApp from "./AuthApp";
 import CursorApp from "./CursorApp";
 import AgentBar from "./AgentBar";
 import BugReportApp from "./BugReportApp";
@@ -30,7 +29,6 @@ const windowParam = new URLSearchParams(window.location.search).get("window");
 
 function Root() {
   if (windowParam === "settings") return <SettingsApp />;
-  if (windowParam === "auth") return <AuthApp />;
   if (windowParam === "cursor") return <CursorApp />;
   if (windowParam === "agentbar") return <AgentBar />;
   if (windowParam === "bug") return <BugReportApp />;

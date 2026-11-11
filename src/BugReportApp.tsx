@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { BugSource } from "./bugReport";
 
 type Prefill = { source: BugSource; error: string; at: string } | null;
@@ -29,7 +30,6 @@ const HEADINGS: Record<BugSource, string> = {
 /** The window people use to report a bug. It never closes on its own when you click away. */
 export default function BugReportApp() {
   const appWindow = useMemo(() => getCurrentWindow(), []);
-  const [email, setEmail] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Prefill>(() => readPrefill());
   const [message, setMessage] = useState("");
   const [includeInfo, setIncludeInfo] = useState(true);
@@ -53,7 +53,6 @@ export default function BugReportApp() {
   }, [appWindow, stage, prefill, error]);
 
   useEffect(() => {
-    invoke<{ email: string | null }>("get_session").then((s) => setEmail(s.email)).catch(() => {});
     textRef.current?.focus();
     // Opened again while already showing (e.g. a second error): pick up the new details.
     const un = listen("bug-prefill", () => {
@@ -80,14 +79,14 @@ export default function BugReportApp() {
       const context: Record<string, unknown> = { source: prefill?.source ?? "settings" };
       if (prefill?.error) context.error = prefill.error;
       if (includeInfo) {
-        const [diag, sub] = await Promise.all([
-          invoke<Record<string, unknown>>("bug_diagnostics").catch(() => ({})),
-          invoke<{ tier: string }>("get_subscription").catch(() => null),
-        ]);
-        Object.assign(context, diag);
-        if (sub) context.plan = sub.tier;
+        Object.assign(context, await invoke<Record<string, unknown>>("bug_diagnostics").catch(() => ({})));
       }
-      await invoke("submit_bug_report", { message: text, context });
+      // Reports are public GitHub issues: open a pre-filled one in the browser.
+      const details = Object.entries(context).map(([k, v]) => `- ${k}: ${String(v)}`).join("\n");
+      const body = `${text}\n\n---\n${details}`.slice(0, 5000);
+      await openUrl(
+        `https://github.com/JustEhannn/clickr/issues/new?title=${encodeURIComponent(text.slice(0, 70))}&body=${encodeURIComponent(body)}`,
+      );
       setStage("sent");
       window.setTimeout(() => void appWindow.close(), 2200);
     } catch (e) {
@@ -109,7 +108,7 @@ export default function BugReportApp() {
         >
           <div>
             <div className="settings-title">{HEADINGS[prefill?.source ?? "settings"]}</div>
-            <div className="settings-subtitle">Report a bug — we read every one.</div>
+            <div className="settings-subtitle">Opens a pre-filled issue on GitHub.</div>
           </div>
           <button className="settings-close" type="button" onClick={() => void appWindow.close()} aria-label="Close">
             ✕
@@ -119,16 +118,12 @@ export default function BugReportApp() {
         {stage === "sent" ? (
           <div className="bug-sent" ref={innerRef}>
             <div className="bug-sent-check">✓</div>
-            <div className="bug-sent-title">Thanks — we got it</div>
-            <div className="bug-sent-text">We&apos;ll look into this and may reach out at {email ?? "your email"}.</div>
+            <div className="bug-sent-title">Almost done</div>
+            <div className="bug-sent-text">Press “Submit new issue” on GitHub to send it. Nothing is shared until you do.</div>
           </div>
         ) : (
           <div className="settings-scroll bug-form">
            <div className="bug-form-inner" ref={innerRef}>
-            <div className="bug-field">
-              <label className="studio-label">Your email</label>
-              <div className="bug-email">{email ?? "…"}</div>
-            </div>
 
             {prefill?.error && (
               <div className="bug-captured">

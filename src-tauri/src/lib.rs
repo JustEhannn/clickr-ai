@@ -1,16 +1,14 @@
 mod platform;
 
-mod auth;
+mod local;
+mod ollama;
 mod agent;
-use auth::AuthState;
 use base64::{engine::general_purpose, Engine as _};
-use serde::Deserialize;
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     Emitter,
-    Listener,
     Manager,
     WebviewWindowBuilder,
     WebviewUrl,
@@ -21,7 +19,6 @@ use tauri_plugin_global_shortcut::{
     ShortcutState,
 };
 
-use tauri_plugin_deep_link::DeepLinkExt;
 
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -95,11 +92,6 @@ struct ShortcutConfig {
    CLICKR AI PROMPT
    ========================================================= */
 
-// The system prompt now lives server-side in supabase/functions/ask/index.ts —
-// this constant is gone from the client entirely.
-
-const BACKEND_URL: &str = "https://xoebvsthsmrnuusduzfg.supabase.co/functions/v1/ask";
-const SUPABASE_ANON_KEY_FOR_FUNCTIONS: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhvZWJ2c3Roc21ybnV1c2R1emZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMjQ3NTcsImV4cCI6MjEwNTgwMDc1N30.RjErbaAI-QC9qQPP2pzu6tdVyoPgX3LiFnWP2C0p5-A"; // same public "anon" key as auth.rs
 
 
 /// Makes the panel ignore (or accept) mouse events without touching focus.
@@ -147,12 +139,6 @@ fn make_interactive(app: &tauri::AppHandle, panel: &dyn tauri_nspanel::Panel) {
 }
 
 pub fn show_main_window(app: &tauri::AppHandle) {
-    // Signed out: the chat must stay hidden; send the person to sign in instead.
-    if !auth::is_signed_in(app) {
-        open_signin_window(app.clone());
-        return;
-    }
-
     #[cfg(target_os = "macos")]
     {
         if let Ok(panel) = app.get_webview_panel("main") {
@@ -335,11 +321,6 @@ fn toggle_window(app: &tauri::AppHandle) {
         return;
     }
 
-    if !auth::is_signed_in(app) {
-        open_signin_window(app.clone());
-        return;
-    }
-
     #[cfg(target_os = "macos")]
     {
         if let Ok(panel) = app.get_webview_panel("main") {
@@ -502,58 +483,6 @@ fn open_bug_report(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /* =========================================================
-   SIGN-IN WINDOW
-   ========================================================= */
-
-// Kept as a plain function so Tauri only creates one command wrapper for it
-// via `generate_handler!` below; adding the attribute here creates a duplicate
-// `__cmd__open_signin_window` symbol in this module.
-pub fn open_signin_window(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("auth") {
-        let _ = window.show();
-        let _ = window.set_focus();
-        return;
-    }
-
-    let app_handle = app.clone();
-
-    let _ = app.run_on_main_thread(move || {
-        let window = WebviewWindowBuilder::new(
-            &app_handle,
-            "auth",
-            WebviewUrl::App("index.html?window=auth".into()),
-        )
-        .title("Sign in to Clickr")
-        .inner_size(360.0, 410.0)
-        .min_inner_size(360.0, 410.0)
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .center()
-        .visible(true)
-        .focused(true)
-        .build();
-
-        // Deliberately no on_window_event/close-on-blur handler here —
-        // unlike Settings, this window must survive losing focus to the
-        // system browser during Google/email sign-in.
-                match window {
-                    Err(e) => {
-                        eprintln!("Failed to build auth window: {e}")
-                    },
-                    Ok(window) => {
-                        #[cfg(target_os = "macos")]
-                        platform::disable_window_shadow(&window);
-                    },
-                }
-
-    });
-}
-
-/* =========================================================
    FILE DRAG DROP
    ========================================================= */
 
@@ -622,9 +551,9 @@ fn quit_app(app: tauri::AppHandle) {
 
 /// Every Clickr window title. New windows must be added here or they show up
 /// in screenshots.
-const OWN_WINDOW_TITLES: &[&str] = &["Clickr", "Clickr Settings", "Sign in to Clickr", "Clickr Cursor", "Clickr Agent", "Clickr Bug Report"];
+const OWN_WINDOW_TITLES: &[&str] = &["Clickr", "Clickr Settings", "Clickr Cursor", "Clickr Agent", "Clickr Bug Report"];
 
-/// Frontmost app + window title, for App-Aware Assistance (Pro).
+/// Frontmost app + window title, for App-Aware Assistance.
 #[tauri::command]
 async fn get_active_app() -> Option<String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -831,195 +760,7 @@ pub(crate) fn prepare_image_for_upload_max(data_url: &str, max_dim: u32) -> Resu
     Ok((mime, data))
 }
 
-#[derive(serde::Serialize)]
-struct AskError {
-    kind: String, // "not_signed_in" | "limit_reached" | "provider_unavailable" | "bad_image" | "network" | "unknown"
-    message: String,
-    retry_after_seconds: Option<i64>,
-}
-
-#[derive(Deserialize)]
-struct AskResponse {
-    answer: String,
-}
-
-#[allow(dead_code)]
-#[derive(Deserialize)]
-
-struct AskErrorBody {
-    #[serde(default)]
-    reason: Option<String>,
-    #[serde(default)]
-    retry_after_seconds: Option<i64>,
-    #[serde(default)]
-    message: Option<String>,
-    #[serde(default)]
-    detail: Option<String>,
-}
-
-async fn call_ask_backend(
-    token: &str,
-    question: &str,
-    screenshot: &Option<(String, String)>,  // (mime, base64)
-    attachments: &[(String, String)],
-    web_search: bool,
-    context: &Option<String>,
-    custom_model_id: &Option<String>,
-    reasoning: bool,
-    app: &tauri::AppHandle,
-    stream_id: &Option<String>,
-) -> Result<String, AskError> {
-    // `web_search` is read by the `ask` Edge Function (Gemini Google-Search
-    // grounding); older deployments simply ignore it.
-    let mut body = serde_json::json!({ "question": question, "web_search": web_search });
-    if stream_id.is_some() && custom_model_id.is_none() {
-        body["stream"] = serde_json::json!(true);
-    }
-    if let Some(id) = custom_model_id {
-        body["custom_model_id"] = serde_json::json!(id);
-    }
-    if reasoning {
-        body["reasoning"] = serde_json::json!(true);
-    }
-    if let Some(c) = context {
-        body["context"] = serde_json::json!(c);
-    }
-    if let Some((mime, data)) = screenshot {
-        body["screenshot"] = serde_json::json!({ "mime": mime, "data": data });
-    }
-    if !attachments.is_empty() {
-        body["attachments"] = serde_json::Value::Array(
-            attachments
-                .iter()
-                .map(|(mime, data)| serde_json::json!({ "mime": mime, "data": data }))
-                .collect(),
-        );
-    }
-
-    let client = reqwest::Client::new();
-    let res = client
-        .post(BACKEND_URL)
-        .header("apikey", SUPABASE_ANON_KEY_FOR_FUNCTIONS)
-        .header("Authorization", format!("Bearer {token}"))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| AskError {
-            kind: "network".to_string(),
-            message: if e.is_timeout() {
-                "The request timed out. Check your connection and try again.".to_string()
-            } else {
-                "Clickr couldn't reach the server. Check your internet connection.".to_string()
-            },
-            retry_after_seconds: None,
-        })?;
-
-    let status = res.status();
-
-    // Streaming reply: forward each piece to the UI as it arrives.
-    let is_stream = res
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.starts_with("text/event-stream"))
-        .unwrap_or(false);
-
-    if status.is_success() && is_stream {
-        use futures_util::StreamExt;
-        let id = stream_id.clone().unwrap_or_default();
-        let mut full = String::new();
-        let mut buf: Vec<u8> = Vec::new();
-        let mut stream = res.bytes_stream();
-
-        let net_err = || AskError {
-            kind: "network".to_string(),
-            message: "The connection dropped while Clickr was answering. Please try again.".to_string(),
-            retry_after_seconds: None,
-        };
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| net_err())?;
-            buf.extend_from_slice(&chunk);
-
-            while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
-                let line: Vec<u8> = buf.drain(..=pos).collect();
-                let line = String::from_utf8_lossy(&line);
-                let Some(payload) = line.trim().strip_prefix("data:") else { continue };
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(payload.trim()) else { continue };
-
-                if let Some(delta) = v.get("delta").and_then(|d| d.as_str()) {
-                    full.push_str(delta);
-                    let _ = app.emit("ask-delta", serde_json::json!({ "id": id, "text": delta }));
-                } else if v.get("error").is_some() {
-                    let mut m = v.get("message").and_then(|m| m.as_str()).unwrap_or("Something went wrong on our side. Please try again.").to_string();
-                    if let Some(d) = v.get("detail").and_then(|d| d.as_str()) {
-                        m = format!("{m}\n\n[debug] {d}");
-                    }
-                    return Err(AskError { kind: "provider_unavailable".to_string(), message: m, retry_after_seconds: None });
-                }
-            }
-        }
-
-        if full.trim().is_empty() {
-            return Err(net_err());
-        }
-        return Ok(full);
-    }
-
-    if status.is_success() {
-        let parsed: AskResponse = res.json().await.map_err(|_| AskError {
-            kind: "unknown".to_string(),
-            message: "Clickr got a response it couldn't understand.".to_string(),
-            retry_after_seconds: None,
-        })?;
-        return Ok(parsed.answer);
-    }
-
-    if status.as_u16() == 401 {
-        return Err(AskError {
-            kind: "auth_expired".to_string(),
-            message: "Please sign in again.".to_string(),
-            retry_after_seconds: None,
-        });
-    }
-
-    let body: AskErrorBody = res.json().await.unwrap_or(AskErrorBody {
-        reason: None,
-        retry_after_seconds: None,
-        message: None,
-        detail: None,
-    });
-
-    if status.as_u16() == 403 {
-        return Err(AskError {
-            kind: "plan_required".to_string(),
-            message: body.message.unwrap_or_else(|| "This feature needs a higher plan.".to_string()),
-            retry_after_seconds: None,
-        });
-    }
-
-    if status.as_u16() == 429 {
-        return Err(AskError {
-            kind: "limit_reached".to_string(),
-            message: "You're out of free questions for now.".to_string(),
-            retry_after_seconds: body.retry_after_seconds,
-        });
-    }
-
-    Err(AskError {
-        kind: "provider_unavailable".to_string(),
-        message: {
-            let m = body
-                .message
-                .unwrap_or_else(|| "Something went wrong on our side. Please try again.".to_string());
-            match body.detail {
-                Some(d) => format!("{m}\n\n[debug] {d}"),
-                None => m,
-            }
-        },
-        retry_after_seconds: None,
-    })
-}
+const SYSTEM_PROMPT: &str = "You are Clickr AI, a helpful assistant that lives on the user's computer.\n\nBe concise and prefer direct answers.\nFormat code using markdown code blocks and equations using markdown math.\nWhen a screenshot is provided, use it only as visual context for the user's request; do not describe it unless that helps.\nA \"Clickr background context\" block may precede the user's message (time, active app, saved memories, recent conversation). Use it silently when relevant and never recite it.";
 
 #[tauri::command]
 async fn ask_ai(
@@ -1028,91 +769,41 @@ async fn ask_ai(
     screenshot_base64: Option<String>,
     attached_images_base64: Option<Vec<String>>,
     context: Option<String>,
-    web_search: Option<bool>,
-    custom_model_id: Option<String>,
-    reasoning: Option<bool>,
     stream_id: Option<String>,
-) -> Result<String, AskError> {
-    // Background (device, active app, memory, recent turns) travels separately
-    // so it never counts against the question length limit.
+) -> Result<String, ollama::AskError> {
+    let bad = |e: String| ollama::AskError { kind: "bad_image".into(), message: e, retry_after_seconds: None };
+
+    let mut images: Vec<String> = Vec::new();
+    let mut files = String::new();
+    for data_url in screenshot_base64.into_iter().chain(attached_images_base64.unwrap_or_default().into_iter().take(4)) {
+        let (mime, data) = prepare_image_for_upload(&data_url).map_err(bad)?;
+        if mime.starts_with("image/") {
+            images.push(data);
+        } else if mime.starts_with("text/") {
+            let bytes = general_purpose::STANDARD.decode(&data).map_err(|e| bad(e.to_string()))?;
+            files.push_str(&format!("\n\n[Attached file]\n{}", String::from_utf8_lossy(&bytes).chars().take(20_000).collect::<String>()));
+        } else {
+            return Err(bad("Local models can't read this file type yet. Try an image or a text file.".into()));
+        }
+    }
+
     let context = context.filter(|c| !c.trim().is_empty());
-    let web_search = web_search.unwrap_or(false);
-    let reasoning = reasoning.unwrap_or(false);
-   let mut token = auth::get_access_token(&app).await.map_err(|_| {
-       open_signin_window(app.clone());
-       AskError {
-           kind: "not_signed_in".to_string(),
-           message: "Sign in to ask Clickr something.".to_string(),
-           retry_after_seconds: None,
-        }
-    })?;
-
-    let screenshot = match screenshot_base64 {
-        Some(s) => Some(prepare_image_for_upload(&s).map_err(|e| AskError {
-            kind: "bad_image".to_string(),
-            message: e,
-            retry_after_seconds: None,
-        })?),
-        None => None,
+    let text = match context {
+        Some(c) => format!("{c}\n\n{question}{files}"),
+        None => format!("{question}{files}"),
     };
-
-    let mut attachments: Vec<(String, String)> = Vec::new();
-    for s in attached_images_base64.unwrap_or_default().into_iter().take(4) {
-        attachments.push(prepare_image_for_upload(&s).map_err(|e| AskError {
-            kind: "bad_image".to_string(),
-            message: e,
-            retry_after_seconds: None,
-        })?);
+    let mut user = serde_json::json!({ "role": "user", "content": text });
+    if !images.is_empty() {
+        user["images"] = serde_json::json!(images);
     }
+    let messages = serde_json::json!([{ "role": "system", "content": SYSTEM_PROMPT }, user]);
 
-    match call_ask_backend(&token, &question, &screenshot, &attachments, web_search, &context, &custom_model_id, reasoning, &app, &stream_id).await {
-        Ok(answer) => Ok(answer),
-        Err(e) if e.kind == "auth_expired" => {
-            token = auth::force_refresh(&app).await.map_err(|_| AskError {
-                kind: "not_signed_in".to_string(),
-                message: "Please sign in again.".to_string(),
-                retry_after_seconds: None,
-            })?;
-            call_ask_backend(&token, &question, &screenshot, &attachments, web_search, &context, &custom_model_id, reasoning, &app, &stream_id).await
-        }
-        Err(e) => Err(e),
+    let reply = ollama::chat(&app, messages, None, stream_id.as_deref()).await?;
+    let answer = reply.get("content").and_then(|c| c.as_str()).unwrap_or("").trim().to_string();
+    if answer.is_empty() {
+        return Err(ollama::AskError { kind: "unknown".into(), message: "The model sent an empty answer. Try again.".into(), retry_after_seconds: None });
     }
-}
-
-/* =========================================================
-   AI HEALTH CHECK
-   ========================================================= */
-
-#[tauri::command]
-async fn check_ai(app: tauri::AppHandle) -> Result<(), String> {
-    let mut token = auth::get_access_token(&app).await.map_err(|_| "not_signed_in".to_string())?;
-
-    for attempt in 0..2 {
-        let res = reqwest::Client::new()
-            .post(BACKEND_URL)
-            .header("apikey", SUPABASE_ANON_KEY_FOR_FUNCTIONS)
-            .header("Authorization", format!("Bearer {token}"))
-            .json(&serde_json::json!({ "ping": true }))
-            .timeout(std::time::Duration::from_secs(15))
-            .send()
-            .await
-            .map_err(|_| "Couldn't reach the Clickr server.".to_string())?;
-
-        if res.status().is_success() {
-            return Ok(());
-        }
-        if res.status().as_u16() == 401 && attempt == 0 {
-            token = auth::force_refresh(&app).await.map_err(|_| "not_signed_in".to_string())?;
-            continue;
-        }
-        let v: serde_json::Value = res.json().await.unwrap_or(serde_json::Value::Null);
-        return Err(v
-            .get("message")
-            .and_then(|m| m.as_str())
-            .unwrap_or("The AI service isn't responding.")
-            .to_string());
-    }
-    Err("not_signed_in".to_string())
+    Ok(answer)
 }
 
 /* =========================================================
@@ -1271,8 +962,6 @@ pub fn run() {
     }
 
     builder = builder
-        .plugin(tauri_plugin_deep_link::init())
-        .manage(AuthState::new())
         .manage(
             ShortcutConfig {
                 toggle: Mutex::new(
@@ -1331,9 +1020,7 @@ pub fn run() {
                         };
 
                         
-                        if is_assist && !auth::is_signed_in(app) {
-                            open_signin_window(app.clone());
-                        } else if is_assist {
+                        if is_assist {
                             let _ =
                                 app.emit(
                                     "assist-shortcut",
@@ -1350,83 +1037,6 @@ pub fn run() {
             platform::hide_dock_icon(
                 app.handle(),
             );
-
-            {
-                let app_handle = app.handle().clone();
-                app.listen("session-updated", move |event| {
-                    if let Ok(payload) =
-                        serde_json::from_str::<serde_json::Value>(event.payload())
-                    {
-                        if payload.get("signed_in").and_then(|v| v.as_bool()) == Some(false) {
-                            // Signed out: hide the chat (and Settings) until sign-in finishes.
-                            let handle = app_handle.clone();
-                            let _ = app_handle.run_on_main_thread(move || {
-                                #[cfg(target_os = "macos")]
-                                if let Ok(panel) = handle.get_webview_panel("main") {
-                                    panel.hide();
-                                }
-                                #[cfg(not(target_os = "macos"))]
-                                if let Some(w) = handle.get_webview_window("main") {
-                                    let _ = w.hide();
-                                }
-                                for label in ["settings", "bugreport"] {
-                                    if let Some(w) = handle.get_webview_window(label) {
-                                        let _ = w.close();
-                                    }
-                                }
-                            });
-                        }
-                        if payload.get("signed_in").and_then(|v| v.as_bool()) == Some(true) {
-                            let main_app_handle = app_handle.clone();
-                            let _ = app_handle.run_on_main_thread(move || {
-                                show_main_window(&main_app_handle);
-                            });
-                        }
-                    }
-                });
-            }
-
-            // Desktop-only: static registration already happened via tauri.conf.json's
-            // plugins.deep-link.desktop.schemes, but Linux needs the runtime call too.
-            #[cfg(target_os = "linux")]
-            {
-                let _ = app.deep_link().register("clickr");
-            }
-
-            {
-                let app_handle = app.handle().clone();
-                app.deep_link().on_open_url(move |event| {
-                    let urls = event.urls();
-                    let Some(url) = urls.first() else { return };
-                    let url = url.to_string();
-
-                    if url.starts_with("clickr://checkout-success")
-                        || url.starts_with("clickr://checkout-cancel")
-                    {
-                        // Nothing to parse here — just bring the app forward and let
-                        // Settings' focus-refetch (already wired) pick up the new tier.
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                        let _ = app_handle.emit("subscription-updated", ());
-                        return;
-                    }
-
-                    let app_handle = app_handle.clone();
-                    tauri::async_runtime::spawn(async move {
-                        auth::handle_auth_callback(&app_handle, &url).await;
-                    });
-                });
-            }
-
-            // Try to restore a session from a previously stored refresh token.
-            {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    auth::restore_session_on_launch(app_handle).await;
-                });
-            }
 
             #[cfg(target_os = "macos")]
             {
@@ -1554,13 +1164,21 @@ pub fn run() {
                 }
              }
 
+            show_main_window(app.handle());
+
             Ok(())
         })
         .invoke_handler(
             tauri::generate_handler![
                 capture_screenshot,
                 ask_ai,
-                check_ai,
+                ollama::check_ai,
+                ollama::ollama_status,
+                ollama::ollama_install,
+                ollama::ollama_start,
+                ollama::ollama_pull,
+                ollama::ollama_set_model,
+                ollama::system_ram_gb,
                 set_global_shortcuts,
                 open_settings,
                 quit_app,
@@ -1568,14 +1186,8 @@ pub fn run() {
                 update_clickable_rect,
                 check_screen_recording_permission,
                 open_system_settings_pane,
-                auth::sign_out,
-                auth::start_web_sign_in,
-                auth::get_session,
-                auth::get_subscription,
+                local::get_session,
                 request_screen_recording_permission,
-                auth::get_linked_providers,
-                auth::start_link_google,
-                auth::unlink_provider,
                 restart_app,
                 set_drag_active,
                 set_agent_hidden,
@@ -1593,23 +1205,11 @@ pub fn run() {
                 agent::agent_tool_needs_screen,
                 agent::check_accessibility,
                 agent::request_accessibility,
-                auth::list_memories,
-                auth::pull_history,
-                auth::push_history,
-                auth::clear_synced_history,
-                auth::add_memory,
-                auth::delete_memory,
-                auth::register_device,
-                auth::delete_synced_chat,
-                auth::submit_bug_report,
+                local::list_memories,
+                local::add_memory,
+                local::delete_memory,
                 bug_diagnostics,
                 open_bug_report,
-                auth::take_over_device,
-                auth::agent_access,
-                auth::join_agent_waitlist,
-                auth::list_custom_models,
-                auth::add_custom_model,
-                auth::delete_custom_model,
             ]
         )
         .run(tauri::generate_context!())

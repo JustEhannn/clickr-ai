@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen, emit } from "@tauri-apps/api/event";
+import { emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
-import { canUse, type Feature } from "./tiers";
 import { onboardingKey } from "./storage";
 import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { reportProblem } from "./bugReport";
-
-const SUPPORT_EMAIL = "clickraisupport@gmail.com";
 
 const DEFAULT_TOGGLE_SHORTCUT = "CmdOrCtrl+Shift+Space";
 const DEFAULT_ASSIST_SHORTCUT = "CmdOrCtrl+Enter";
@@ -158,55 +155,6 @@ function keyboardEventToShortcut(e: KeyboardEvent) {
   return [...modifierParts, key].join("+");
 }
 
-type Subscription = {
-  tier: "free" | "pro" | "pro_plus";
-  status: string;
-  billing_cycle: string | null;
-  current_period_end: string | null;
-};
-
-type CustomModel = {
-  id: string;
-  name: string;
-  provider: string;
-  model_id: string;
-  base_url: string | null;
-};
-
-const PROVIDERS: { value: string; label: string; modelHint: string }[] = [
-  { value: "openai", label: "OpenAI", modelHint: "gpt-4o" },
-  { value: "anthropic", label: "Anthropic", modelHint: "claude-sonnet-4-6" },
-  { value: "gemini", label: "Google Gemini", modelHint: "gemini-3.1-pro-preview" },
-  { value: "openai_compatible", label: "OpenAI-compatible (custom URL)", modelHint: "meta-llama/llama-3.3-70b" },
-];
-
-type LinkedIdentity = {
-  id: string;
-  provider: string;
-};
-
-function tierLabel(tier: string) {
-  if (tier === "pro") return "Pro";
-  if (tier === "pro_plus") return "Pro+";
-  return "Free";
-}
-
-function formatRenewalDate(iso: string | null) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
-}
-
-/** The official four-colour Google "G". */
-function GoogleLogo() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
-      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.9-2.26 5.36-4.78 7.02l7.73 6c4.51-4.18 7.09-10.36 7.09-17.49z" />
-      <path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24 24 0 0 0 0 21.56l7.98-6.19z" />
-      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.9l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
-    </svg>
-  );
-}
 
 function SectionHeader({ icon, title }: { icon: "user" | "card" | "sliders" | "brain" | "keyboard" | "bug"; title: string }) {
   return (
@@ -241,15 +189,6 @@ export default function SettingsApp() {
   // loop that made the whole window flicker.
   const appWindow = useMemo(() => getCurrentWindow(), []);
 
-  const [session, setSession] = useState<{ email: string | null; signed_in: boolean; user_id?: string | null }>({
-    email: null,
-    signed_in: false,
-  });
-
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [linkedProviders, setLinkedProviders] = useState<LinkedIdentity[] | null>(null);
-  const [linkError, setLinkError] = useState("");
-  const [billingError, setBillingError] = useState("");
   const [openAtLogin, setOpenAtLogin] = useState(false);
   const [updateState, setUpdateState] = useState<"idle" | "checking" | "uptodate" | "available" | "installing" | "error">("idle");
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
@@ -300,95 +239,38 @@ export default function SettingsApp() {
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
-  const [linkBusy, setLinkBusy] = useState(false);
 
   const [memories, setMemories] = useState<{ id: string; content: string }[]>([]);
   const [memoryText, setMemoryText] = useState("");
   const [memoryError, setMemoryError] = useState("");
 
-  const [models, setModels] = useState<CustomModel[]>([]);
-  const [modelError, setModelError] = useState("");
-  const [modelBusy, setModelBusy] = useState(false);
-  const [modelName, setModelName] = useState("");
-  const [modelId, setModelId] = useState("");
-  const [modelKey, setModelKey] = useState("");
-  const [modelProvider, setModelProvider] = useState("openai");
-  const [modelBaseUrl, setModelBaseUrl] = useState("");
   const [bgInput, setBgInput] = useState(() => localStorage.getItem("clickr-agent-background-input") === "true");
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem("clickr-auto-approve") === "true");
 
-  useEffect(() => {
-    function loadSubscription() {
-      invoke<Subscription>("get_subscription").then(setSubscription).catch(() => setSubscription(null));
-    }
+  const [ollama, setOllama] = useState<{ models: { name: string; size: number }[]; active: string | null }>({ models: [], active: null });
+  const session = { user_id: "local" };
 
-    loadSubscription();
-
-    let cleanup: (() => void) | undefined;
-    appWindow.onFocusChanged(({ payload: focused }) => {
-      if (focused) loadSubscription();
-    }).then((fn) => {
-      cleanup = fn;
-    });
-    void listen("subscription-updated", () => loadSubscription());
-    return () => cleanup?.();
-  }, [appWindow]);
-
-  useEffect(() => {
-    invoke<{ email: string | null; signed_in: boolean }>("get_session").then(setSession);
-
-    let cleanup: (() => void) | undefined;
-    void listen<{ email: string | null; signed_in: boolean }>("session-updated", (event) => {
-      setSession(event.payload);
-    }).then((fn) => {
-      cleanup = fn;
-    });
-
-    return () => cleanup?.();
-  }, []);
-
-  function loadLinkedProviders() {
-    invoke<LinkedIdentity[]>("get_linked_providers")
-      .then(setLinkedProviders)
-      .catch(() => setLinkedProviders(null));
+  function refreshOllama() {
+    invoke<{ models: { name: string; size: number }[]; active: string | null }>("ollama_status")
+      .then(setOllama)
+      .catch(() => {});
   }
 
   useEffect(() => {
-    loadLinkedProviders();
-
+    refreshOllama();
     let cleanup: (() => void) | undefined;
     appWindow.onFocusChanged(({ payload: focused }) => {
-      if (focused) loadLinkedProviders();
+      if (focused) refreshOllama();
     }).then((fn) => {
       cleanup = fn;
     });
-
     return () => cleanup?.();
   }, [appWindow]);
 
-  async function linkGoogle() {
-    setLinkError("");
-    setLinkBusy(true);
-    try {
-      await invoke("start_link_google");
-    } catch (e) {
-      setLinkError(String(e));
-    } finally {
-      setLinkBusy(false);
-    }
-  }
-
-  async function unlinkGoogle(identityId: string) {
-    setLinkError("");
-    setLinkBusy(true);
-    try {
-      await invoke("unlink_provider", { identityId });
-      loadLinkedProviders();
-    } catch (e) {
-      setLinkError(String(e));
-    } finally {
-      setLinkBusy(false);
-    }
+  /** The model picker lives in the chat window: ask it to open the setup screen, then step aside. */
+  async function openAiSetup() {
+    await emit("open-ai-setup");
+    await appWindow.close();
   }
 
   useEffect(() => {
@@ -470,19 +352,14 @@ export default function SettingsApp() {
     await appWindow.close();
   }
 
-  const tierNow = subscription?.tier ?? "free";
-  const modelsUnlocked = canUse(subscription?.tier ?? null, "customModels");
-  const hotkeysUnlocked = canUse(subscription?.tier ?? null, "customHotkeys");
-
-  const memoryUnlocked = canUse(subscription?.tier ?? null, "memory");
 
   function loadMemories() {
     invoke<{ id: string; content: string }[]>("list_memories").then(setMemories).catch(() => setMemories([]));
   }
 
   useEffect(() => {
-    if (memoryUnlocked) loadMemories();
-  }, [memoryUnlocked]);
+    loadMemories();
+  }, []);
 
   async function addMemory() {
     setMemoryError("");
@@ -500,69 +377,10 @@ export default function SettingsApp() {
     loadMemories();
   }
 
-  function loadModels() {
-    invoke<CustomModel[]>("list_custom_models").then(setModels).catch(() => setModels([]));
-  }
-
-  useEffect(() => {
-    if (modelsUnlocked) loadModels();
-  }, [modelsUnlocked]);
-
-  async function addModel() {
-    setModelError("");
-    setModelBusy(true);
-    try {
-      await invoke("add_custom_model", {
-        name: modelName,
-        provider: modelProvider,
-        modelId,
-        apiKey: modelKey,
-        baseUrl: modelProvider === "openai_compatible" ? modelBaseUrl : null,
-      });
-      setModelName("");
-      setModelId("");
-      setModelKey("");
-      setModelBaseUrl("");
-      loadModels();
-      void emit("models-updated");
-    } catch (e) {
-      setModelError(String(e));
-    } finally {
-      setModelBusy(false);
-    }
-  }
-
-  async function removeModel(id: string) {
-    setModelError("");
-    try {
-      await invoke("delete_custom_model", { id });
-      loadModels();
-      void emit("models-updated");
-    } catch (e) {
-      setModelError(String(e));
-    }
-  }
-
   function startRecording(which: "toggle" | "assist") {
-    if (!hotkeysUnlocked) {
-      void openPricingModal("customHotkeys");
-      return;
-    }
     setShortcutError("");
     setRecordingShortcut(which);
   }
-
-  async function openPricingModal(feature?: Feature) {
-    await emit("open-pricing-modal", { feature });
-    await appWindow.close();
-  }
-
-  const hasGoogle = linkedProviders?.some((p) => p.provider === "google") ?? false;
-  const googleIdentity = linkedProviders?.find((p) => p.provider === "google");
-
-  const tier = subscription?.tier ?? "free";
-  const tierBadgeClass =
-    tier === "pro_plus" ? "settings-tier-badge tier-pro-plus" : tier === "pro" ? "settings-tier-badge tier-pro" : "settings-tier-badge";
 
   return (
     <main className="clickr-root settings-window-root">
@@ -592,132 +410,9 @@ export default function SettingsApp() {
 
         <div className="settings-scroll">
           <div className="settings-card">
-            <SectionHeader icon="user" title="Account" />
-
-            <div className="settings-account-row">
-              <div className="settings-avatar">{(session.email ?? "?").charAt(0).toUpperCase()}</div>
-              <div className="settings-account-info">
-                <div className="settings-account-email">{session.email ?? "Signed in"}</div>
-                <span className={tierBadgeClass}>{tierLabel(tier)}</span>
-              </div>
-              <button className="settings-pill-button" type="button" onClick={() => void invoke("sign_out")}>
-                Sign Out
-              </button>
-            </div>
-
-            <div className="settings-divider-thin" />
-
-            {hasGoogle ? (
-              <div className="google-linked-row">
-                <div className="google-button google-button-static">
-                  <GoogleLogo />
-                  <span>Google account linked</span>
-                  <span className="google-check" aria-hidden="true">✓</span>
-                </div>
-                <button
-                  className="google-unlink"
-                  type="button"
-                  disabled={linkBusy}
-                  onClick={() => googleIdentity && void unlinkGoogle(googleIdentity.id)}
-                >
-                  {linkBusy ? "…" : "Unlink"}
-                </button>
-              </div>
-            ) : (
-              <button className="google-button" type="button" disabled={linkBusy} onClick={() => void linkGoogle()}>
-                <GoogleLogo />
-                <span>{linkBusy ? "Opening…" : "Link Google account"}</span>
-              </button>
-            )}
-
-            {linkError && <div className="shortcut-error">{linkError}</div>}
-          </div>
-
-          <div className="settings-card">
-            <SectionHeader icon="card" title="Billing" />
-
-            <div className="settings-info-row">
-              <span>Current Plan</span>
-              <span className={tierBadgeClass}>{subscription ? tierLabel(subscription.tier) : "…"}</span>
-            </div>
-
-            {subscription && subscription.tier !== "free" && subscription.current_period_end && (
-              <div className="settings-info-row">
-                <span>Renews</span>
-                <span className="settings-value-text">
-                  {formatRenewalDate(subscription.current_period_end)}
-                  {subscription.billing_cycle ? ` · ${subscription.billing_cycle}` : ""}
-                </span>
-              </div>
-            )}
-
-            {subscription?.tier === "free" && (
-              <button className="settings-row" type="button" onClick={() => void openPricingModal()}>
-                <div>
-                  <div className="settings-row-title">Upgrade to Pro</div>
-                  <div className="settings-row-description">View plans</div>
-                </div>
-                <Icon name="chevron" size={14} />
-              </button>
-            )}
-
-            {subscription?.tier === "pro" && (
-              <button className="settings-row" type="button" onClick={() => void openPricingModal()}>
-                <div>
-                  <div className="settings-row-title">Upgrade to Pro+</div>
-                  <div className="settings-row-description">Agent Mode, custom models, highest limits</div>
-                </div>
-                <Icon name="chevron" size={14} />
-              </button>
-            )}
-
-            {subscription?.tier === "pro_plus" && (
-              <div className="settings-info-row">
-                <span>You're on our top plan</span>
-              </div>
-            )}
-
-            {subscription && subscription.tier !== "free" && (
-              <>
-              <button
-                className="settings-row"
-                type="button"
-                onClick={() => {
-                  setBillingError("");
-                  // Billing (cancel, switch plan, card, receipts) lives on the website.
-                  openUrl("https://www.clickrai.com/account#billing").catch(() =>
-                    setBillingError("Couldn't open your browser. Go to clickrai.com/account."),
-                  );
-                }}
-              >
-                <div>
-                  <div className="settings-row-title">Manage subscription</div>
-                  <div className="settings-row-description">Cancel, switch plans, or update payment</div>
-                </div>
-                <Icon name="chevron" size={14} />
-              </button>
-              {billingError && <div className="shortcut-error">{billingError}</div>}
-              </>
-            )}
-          </div>
-
-          <div className="settings-card">
             <SectionHeader icon="brain" title="Memory" />
 
-            {!memoryUnlocked ? (
-              <div className="model-locked">
-                <div className="model-locked-text">
-                  Clickr remembers things you tell it across conversations. Available on Pro.
-                </div>
-                <button
-                  className="settings-pill-button settings-pill-accent"
-                  type="button"
-                  onClick={() => void openPricingModal("memory")}
-                >
-                  Upgrade
-                </button>
-              </div>
-            ) : (
+            {(
               <>
                 <div className="model-locked-text" style={{ marginBottom: 8 }}>
                   Tip: type "remember …" in the chat to save something.
@@ -759,117 +454,32 @@ export default function SettingsApp() {
           </div>
 
           <div className="settings-card">
-            <SectionHeader icon="brain" title="AI" />
-
-            {!modelsUnlocked ? (
-              <div className="model-locked">
-                <div className="model-locked-text">
-                  Use your own AI models inside Clickr — OpenAI, Anthropic, Gemini or any OpenAI-compatible API — and switch between them from the chat header. Available on Pro+.
-                </div>
-                <button
-                  className="settings-pill-button settings-pill-accent"
-                  type="button"
-                  onClick={() => void openPricingModal("customModels")}
-                >
-                  {tierNow === "free" ? "Upgrade" : "Get Pro+"}
-                </button>
-              </div>
-            ) : (
-              <>
-                {models.length > 0 && (
-                  <div className="model-list">
-                    {models.map((m) => (
-                      <div className="model-item" key={m.id}>
-                        <div className="model-item-text">
-                          <div className="model-item-name">{m.name}</div>
-                          <div className="model-item-meta">{PROVIDERS.find((p) => p.value === m.provider)?.label ?? m.provider} · {m.model_id}</div>
-                        </div>
-                        <button className="settings-pill-button" type="button" onClick={() => void removeModel(m.id)}>
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="model-locked-text" style={{ marginBottom: 8 }}>
-                  Add models here, then pick one from the Clickr AI menu at the top of the chat.
-                </div>
-                <div className="model-form">
-                  <select
-                    className="model-input"
-                    value={modelProvider}
-                    onChange={(e) => setModelProvider(e.target.value)}
-                  >
-                    {PROVIDERS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                  {modelProvider === "openai_compatible" && (
-                    <input
-                      className="model-input"
-                      placeholder="Base URL (https://…/v1)"
-                      value={modelBaseUrl}
-                      onChange={(e) => setModelBaseUrl(e.target.value)}
-                    />
-                  )}
-                  <input
-                    className="model-input"
-                    placeholder="Display name"
-                    value={modelName}
-                    onChange={(e) => setModelName(e.target.value)}
-                  />
-                  <input
-                    className="model-input"
-                    placeholder={`Model ID (e.g. ${PROVIDERS.find((p) => p.value === modelProvider)?.modelHint})`}
-                    value={modelId}
-                    onChange={(e) => setModelId(e.target.value)}
-                  />
-                  <input
-                    className="model-input"
-                    type="password"
-                    placeholder="API key"
-                    value={modelKey}
-                    onChange={(e) => setModelKey(e.target.value)}
-                  />
-                  <button
-                    className="settings-pill-button settings-pill-accent"
-                    type="button"
-                    disabled={modelBusy || !modelName.trim() || !modelId.trim() || !modelKey.trim() || (modelProvider === "openai_compatible" && !modelBaseUrl.trim())}
-                    onClick={() => void addModel()}
-                  >
-                    {modelBusy ? "Adding…" : "Add model"}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {modelError && <div className="shortcut-error">{modelError}</div>}
+            <SectionHeader icon="brain" title="AI model" />
+            <div className="model-locked-text" style={{ marginBottom: 8 }}>
+              Clickr runs a free open model on your computer with Ollama. Nothing you ask leaves your Mac.
+            </div>
+            <div className="settings-info-row">
+              <span>{ollama.active ? ollama.active : "No model chosen yet"}</span>
+              <button className="settings-pill-button settings-pill-accent" type="button" onClick={() => void openAiSetup()}>
+                {ollama.active ? "Change" : "Set up"}
+              </button>
+            </div>
           </div>
 
           <div className="settings-card">
-            <SectionHeader icon="sliders" title="Pro+" />
+            <SectionHeader icon="sliders" title="Agent Mode" />
             <div className="settings-info-row">
-              <span>
-                Beta: auto-approve agent actions{" "}
-                {!canUse(subscription?.tier ?? null, "beta") && <span className="settings-lock-chip">Pro+</span>}
-              </span>
+              <span>Auto-approve agent actions (experimental)</span>
               <button
                 className="settings-pill-button"
                 type="button"
                 onClick={() => {
-                  if (!canUse(subscription?.tier ?? null, "beta")) {
-                    void openPricingModal("beta");
-                    return;
-                  }
                   const next = !autoApprove;
                   setAutoApprove(next);
                   localStorage.setItem("clickr-auto-approve", String(next));
                 }}
               >
-                {autoApprove && canUse(subscription?.tier ?? null, "beta") ? "On" : "Off"}
+                {autoApprove ? "On" : "Off"}
               </button>
             </div>
 
@@ -888,28 +498,6 @@ export default function SettingsApp() {
               </button>
             </div>
 
-            <button
-              className="settings-row"
-              type="button"
-              onClick={() => {
-                const pro = canUse(subscription?.tier ?? null, "prioritySupport");
-                void openUrl(
-                  `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(pro ? "[Priority] Clickr support" : "Clickr support")}`,
-                );
-              }}
-            >
-              <div>
-                <div className="settings-row-title">
-                  {canUse(subscription?.tier ?? null, "prioritySupport") ? "Priority Support" : "Contact support"}
-                </div>
-                <div className="settings-row-description">
-                  {canUse(subscription?.tier ?? null, "prioritySupport")
-                    ? "Your emails are flagged and answered first"
-                    : "Upgrade to Pro+ for priority replies"}
-                </div>
-              </div>
-              <Icon name="chevron" size={14} />
-            </button>
           </div>
 
           <div className="settings-card">
@@ -918,7 +506,7 @@ export default function SettingsApp() {
             <div className="settings-shortcut-row">
               <div>
                 <div className="settings-row-title">Show / Hide Clickr</div>
-                <div className="settings-row-description">{hotkeysUnlocked ? "Global shortcut" : "Custom hotkeys require Pro"}</div>
+                <div className="settings-row-description">Global shortcut</div>
               </div>
 
               <button
@@ -1005,14 +593,22 @@ export default function SettingsApp() {
             <button className="settings-row" type="button" onClick={() => reportProblem("settings")}>
               <div>
                 <div className="settings-row-title">Report a bug</div>
-                <div className="settings-row-description">Something broken or not working? Tell us — we read every report</div>
+                <div className="settings-row-description">Something broken or not working? Open an issue on GitHub</div>
+              </div>
+              <Icon name="chevron" size={14} />
+            </button>
+
+            <button className="settings-row" type="button" onClick={() => void openUrl("https://github.com/JustEhannn/clickr")}>
+              <div>
+                <div className="settings-row-title">Open source on GitHub</div>
+                <div className="settings-row-description">Read the code, report issues, or contribute</div>
               </div>
               <Icon name="chevron" size={14} />
             </button>
           </div>
 
           <div className="settings-footer">
-            <span>Clickr</span>
+            <span>Clickr AI</span>
             <span>•</span>
             <span>{version ? `v${version}` : ""}</span>
           </div>
