@@ -20,7 +20,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { agentBetaKey, onboardingKey } from "./storage";
 import { reportProblem } from "./bugReport";
 import SetupAI from "./SetupAI";
-import { MODELS } from "./models";
+import { SUBSCRIPTION_MODELS, modelName } from "./models";
 import { canUse, FILE_ACCEPT_ALL, type Tier } from "./tiers";
 import {
   describeCall,
@@ -477,7 +477,7 @@ export default function App() {
   );
 
 
-  const [ai, setAi] = useState<{ models: { name: string; size: number }[]; active: string | null }>({ models: [], active: null });
+  const [ai, setAi] = useState<{ models: { name: string; size: number }[]; active: string | null; cli?: Record<string, { installed: boolean; loggedIn: boolean }> }>({ models: [], active: null });
   const [setupOpen, setSetupOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [agentMode, setAgentMode] = useState(false);
@@ -1194,11 +1194,11 @@ export default function App() {
 
 
   async function refreshAi() {
-    const st = await invoke<{ models: { name: string; size: number }[]; active: string | null }>("ai_status").catch(() => null);
-    if (st) setAi({ models: st.models, active: st.active });
+    const st = await invoke<{ models: { name: string; size: number }[]; active: string | null; cli?: Record<string, { installed: boolean; loggedIn: boolean }> }>("ai_status").catch(() => null);
+    if (st) setAi({ models: st.models, active: st.active, cli: st.cli });
   }
 
-  const activeModelName = ai.active ? (MODELS.find((x) => x.tag === ai.active)?.name ?? ai.active) : "Choose an AI model";
+  const activeModelName = ai.active ? modelName(ai.active) : "Choose an AI model";
 
   function handleAskError(error: unknown) {
     const askErr = error as { kind?: string; message?: string } | string;
@@ -2019,10 +2019,27 @@ export default function App() {
                           })}
                         >
                           <span className="model-menu-text">
-                            <span className="model-menu-name">{MODELS.find((x) => x.tag === m.name)?.name ?? m.name}</span>
+                            <span className="model-menu-name">{modelName(m.name)}</span>
                             <span className="model-menu-sub">{(m.size / 1e9).toFixed(1)} GB</span>
                           </span>
                           {ai.active === m.name && <Icon name="check" size={13} />}
+                        </button>
+                      ))}
+                      {SUBSCRIPTION_MODELS.filter((m) => ai.cli?.[m.program]?.loggedIn).map((m) => (
+                        <button
+                          key={m.tag}
+                          type="button"
+                          className={`model-menu-item ${ai.active === m.tag ? "selected" : ""}`}
+                          {...makeSafeClickHandlers(clickDownPosRef, () => {
+                            void invoke("ai_set_model", { model: m.tag }).then(() => void refreshAi());
+                            setModelMenuOpen(false);
+                          })}
+                        >
+                          <span className="model-menu-text">
+                            <span className="model-menu-name">{m.name}</span>
+                            <span className="model-menu-sub">Your subscription · sent to {m.program === "claude" ? "Anthropic" : "OpenAI"}</span>
+                          </span>
+                          {ai.active === m.tag && <Icon name="check" size={13} />}
                         </button>
                       ))}
                       <button

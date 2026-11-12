@@ -2,9 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { MODELS, recommended } from "./models";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { MODELS, SUBSCRIPTION_MODELS, recommended } from "./models";
 
-type Status = { engine: boolean; models: { name: string; size: number }[]; active: string | null };
+type Status = {
+  engine: boolean;
+  models: { name: string; size: number }[];
+  active: string | null;
+  cli?: Record<string, { installed: boolean; loggedIn: boolean }>;
+};
 type Progress = { label: string; done: number; total: number } | null;
 
 const gb = (n: number) => (n / 1e9).toFixed(1);
@@ -44,15 +50,21 @@ export default function SetupAI({ onClose, onDone }: { onClose: () => void; onDo
   const suggested = recommended(ram);
   const selected = picked ?? suggested.tag;
   const chosen = MODELS.find((m) => m.tag === selected);
+  const chosenSub = SUBSCRIPTION_MODELS.find((m) => m.tag === selected);
   const downloaded = (tag: string) => !!status?.models.some((m) => m.name === tag);
 
   async function start() {
-    if (!chosen) return;
+    if (!chosen && !chosenSub) return;
     setError("");
     setBusy(true);
     try {
-      if (!downloaded(chosen.tag)) await invoke("ai_download_model", { tag: chosen.tag, repo: chosen.repo });
-      await invoke("ai_set_model", { model: chosen.tag });
+      if (chosenSub) {
+        await invoke("ai_set_model", { model: chosenSub.tag });
+        onDone();
+        return;
+      }
+      if (chosen && !downloaded(chosen.tag)) await invoke("ai_download_model", { tag: chosen.tag, repo: chosen.repo });
+      if (chosen) await invoke("ai_set_model", { model: chosen.tag });
       onDone();
     } catch (e) {
       setError(String(e));
@@ -113,6 +125,45 @@ export default function SetupAI({ onClose, onDone }: { onClose: () => void; onDo
               </button>
             );
           })}
+        <div className="setup-sub">
+          <div className="setup-section-title">Or use your Claude / ChatGPT subscription</div>
+          <p className="setup-section-text">
+            Uses the Claude Code or Codex program you already have installed and logged in to. Faster and stronger than local models, but
+            your questions and screen are sent to Anthropic or OpenAI, and it uses your own usage limit.
+          </p>
+          {SUBSCRIPTION_MODELS.map((m) => {
+            const st = status?.cli?.[m.program];
+            const ready = !!st?.loggedIn;
+            const hint = !st?.installed
+              ? m.program === "claude"
+                ? "Claude Code isn't installed"
+                : "Codex isn't installed"
+              : !st.loggedIn
+                ? `Log in first: run "${m.program} ${m.program === "claude" ? "auth login" : "login"}" in Terminal`
+                : null;
+            return (
+              <button
+                key={m.tag}
+                type="button"
+                className={`setup-model ${selected === m.tag ? "selected" : ""} ${ready ? "" : "off"}`}
+                disabled={busy || !ready}
+                onClick={() => setPicked(m.tag)}
+              >
+                <div className="setup-model-top">
+                  <span className="setup-model-name">{m.name}</span>
+                  {status?.active === m.tag && <span className="setup-chip">In use</span>}
+                  <span className="setup-model-size">Your subscription</span>
+                </div>
+                <div className="setup-model-sub">
+                  <span>{hint ?? m.blurb}</span>
+                </div>
+              </button>
+            );
+          })}
+          <button className="setup-link" type="button" onClick={() => void openUrl("https://claude.com/claude-code")}>
+            Get Claude Code
+          </button>
+        </div>
         </div>
 
         <div className="setup-footer">
@@ -129,8 +180,8 @@ export default function SetupAI({ onClose, onDone }: { onClose: () => void; onDo
           )}
           {error && <div className="setup-error">{error}</div>}
 
-          <button className="setup-primary" type="button" disabled={busy || !chosen} onClick={() => void start()}>
-            {busy ? "Working…" : downloaded(selected) ? "Use this model" : `Download and use (${chosen?.sizeGB} GB${status?.engine ? "" : " + 17 MB engine"})`}
+          <button className="setup-primary" type="button" disabled={busy || (!chosen && !chosenSub)} onClick={() => void start()}>
+            {busy ? "Working…" : chosenSub ? `Use ${chosenSub.name}` : downloaded(selected) ? "Use this model" : `Download and use (${chosen?.sizeGB} GB${status?.engine ? "" : " + 17 MB engine"})`}
           </button>
           <button className="setup-link" type="button" disabled={busy} onClick={onClose}>
             Not now

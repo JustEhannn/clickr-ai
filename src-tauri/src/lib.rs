@@ -1,6 +1,7 @@
 mod platform;
 
 mod local;
+mod cli;
 mod engine;
 mod agent;
 use base64::{engine::general_purpose, Engine as _};

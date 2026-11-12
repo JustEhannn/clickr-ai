@@ -16,6 +16,7 @@ Include what you found, how to reproduce it, and which version you used. I aim t
 ## What Clickr does and doesn't do
 
 - It runs the AI model on your own computer. It has no accounts and no servers of its own, and it sends no telemetry.
+- If you choose a Claude or ChatGPT subscription model, Clickr runs the official `claude` / `codex` program you installed and logged in to, and your questions and screenshots go to Anthropic / OpenAI. Clickr never reads your login.
 - It connects to GitHub (to download the pinned llama.cpp engine and check for updates) and to Hugging Face (to download the model you choose).
 - App updates are signed; the app only installs an update signed with the project's key.
 - Agent Mode can click, type and change files on your computer, so it asks for approval before actions that matter and has a Stop button.

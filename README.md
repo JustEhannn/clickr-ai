@@ -46,7 +46,8 @@ Requires macOS 14 or later. The app isn't notarized yet, so macOS may say it's f
 - **Memory**: type "remember …" and Clickr keeps it on your computer for later chats
 - **App-aware and multi-monitor**: knows which app you're in and can capture any display
 - **Conversation history**: search, reopen and delete past chats, stored locally
-- **Private by design**: no accounts, no tracking, no data leaves your Mac
+- **Private by design**: no accounts, no tracking, and with the built-in models no data leaves your Mac
+- **Optional: your own Claude or ChatGPT subscription**: if you have [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex) installed and logged in, pick Claude Opus / Sonnet / Haiku or ChatGPT in the model list instead. Faster and stronger, but your questions and screen are then sent to Anthropic or OpenAI. Clickr never sees your login
 - **Free**: every feature is included. The source is available to read, but it is not open source: see [License](#license)
 
 ## Models

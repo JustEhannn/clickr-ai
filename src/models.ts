@@ -30,3 +30,27 @@ export const MODELS: ModelOption[] = [
 export function recommended(ramGB: number): ModelOption {
   return MODELS.find((m) => m.minRam <= ramGB) ?? MODELS[MODELS.length - 1];
 }
+
+/**
+ * Optional models that use the person's own Claude or ChatGPT subscription through the official
+ * `claude` / `codex` programs. Unlike the local models above, their questions and screen go to
+ * Anthropic / OpenAI.
+ */
+export type SubscriptionModel = {
+  tag: string; // "<program>:<model>"
+  program: "claude" | "codex";
+  name: string;
+  blurb: string;
+};
+
+export const SUBSCRIPTION_MODELS: SubscriptionModel[] = [
+  { tag: "claude:opus", program: "claude", name: "Claude Opus", blurb: "Strongest Claude. Best for Agent Mode." },
+  { tag: "claude:sonnet", program: "claude", name: "Claude Sonnet", blurb: "Fast and very capable." },
+  { tag: "claude:haiku", program: "claude", name: "Claude Haiku", blurb: "Fastest, lightest on your usage limit." },
+  { tag: "codex:default", program: "codex", name: "ChatGPT (Codex)", blurb: "Uses the model your Codex login picks. Not tested yet." },
+];
+
+/** Display name for any model tag, local or subscription. */
+export function modelName(tag: string): string {
+  return MODELS.find((m) => m.tag === tag)?.name ?? SUBSCRIPTION_MODELS.find((m) => m.tag === tag)?.name ?? tag;
+}

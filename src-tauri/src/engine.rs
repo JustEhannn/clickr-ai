@@ -57,7 +57,10 @@ async fn sleep_ms(ms: u64) {
 
 /// What the setup screen needs: is the engine downloaded, which models are downloaded, which is chosen.
 #[tauri::command]
-pub fn ai_status(app: AppHandle) -> Value {
+pub async fn ai_status(app: AppHandle) -> Value {
+    // Looking for the Claude / Codex programs starts them, so keep it off the UI thread.
+    let app2 = app.clone();
+    let cli = tauri::async_runtime::spawn_blocking(move || crate::cli::status(&app2)).await.unwrap_or(Value::Null);
     let mut models = Vec::new();
     if let Ok(dir) = data_dir(&app).map(|d| d.join("models")) {
         for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -67,7 +70,7 @@ pub fn ai_status(app: AppHandle) -> Value {
             models.push(json!({ "name": e.file_name().to_string_lossy().replace("__", ":"), "size": meta.len() + mm }));
         }
     }
-    json!({ "engine": engine_bin(&app).is_some(), "models": models, "active": active_model(&app) })
+    json!({ "engine": engine_bin(&app).is_some(), "models": models, "active": active_model(&app), "cli": cli })
 }
 
 /// Installed memory in GB, so the setup screen can warn when a model is too big.
@@ -202,6 +205,9 @@ fn unknown(msg: impl Into<String>) -> AskError {
 
 /// Why the AI can't answer right now (None = ready).
 pub fn readiness(app: &AppHandle) -> Option<String> {
+    if let Some((kind, _)) = active_model(app).and_then(|t| crate::cli::Kind::parse(&t)) {
+        return crate::cli::ready(app, kind);
+    }
     if engine_bin(app).is_none() {
         return Some("The AI engine isn't downloaded yet.".into());
     }
@@ -213,8 +219,10 @@ pub fn readiness(app: &AppHandle) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn check_ai(app: AppHandle) -> Result<(), String> {
-    match readiness(&app) {
+pub async fn check_ai(app: AppHandle) -> Result<(), String> {
+    let app2 = app.clone();
+    let why = tauri::async_runtime::spawn_blocking(move || readiness(&app2)).await.unwrap_or(None);
+    match why {
         None => Ok(()),
         Some(m) => Err(m),
     }
@@ -310,6 +318,10 @@ async fn ensure_server(app: &AppHandle) -> Result<u16, AskError> {
 /// One chat call to the local model (OpenAI-style messages). Streams text pieces as `ask-delta` when
 /// `stream_id` is set. Returns `{ content, tool_calls: [{ function: { name, arguments } }] }`.
 pub async fn chat(app: &AppHandle, messages: Value, tools: Option<Value>, stream_id: Option<&str>) -> Result<Value, AskError> {
+    // A Claude / Codex subscription model instead of a local one.
+    if let Some(tag) = active_model(app).filter(|t| crate::cli::Kind::parse(t).is_some()) {
+        return crate::cli::chat(app, &tag, messages, tools, stream_id).await;
+    }
     let port = ensure_server(app).await?;
     let stream = stream_id.is_some();
     let mut body = json!({

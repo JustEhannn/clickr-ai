@@ -5,7 +5,7 @@ import { emit } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import { onboardingKey } from "./storage";
-import { MODELS } from "./models";
+import { modelName } from "./models";
 import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { reportProblem } from "./bugReport";
@@ -460,7 +460,7 @@ export default function SettingsApp() {
               Clickr runs a free open model on your computer. Nothing you ask leaves your Mac.
             </div>
             <div className="settings-info-row">
-              <span>{ai.active ? (MODELS.find((x) => x.tag === ai.active)?.name ?? ai.active) : "No model chosen yet"}</span>
+              <span>{ai.active ? modelName(ai.active) : "No model chosen yet"}</span>
               <button className="settings-pill-button settings-pill-accent" type="button" onClick={() => void openAiSetup()}>
                 {ai.active ? "Change" : "Set up"}
               </button>
