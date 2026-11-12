@@ -37,5 +37,5 @@
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
   },
-  "description": "Clickr AI: a free, open-source floating AI copilot for macOS that runs on a local model"
+  "description": "Clickr AI: a free floating AI copilot for macOS that runs on a local model"
 }
