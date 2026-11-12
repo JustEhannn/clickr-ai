@@ -1,6 +1,6 @@
 # Windows port
 
-Clickr AI is macOS-only today. This file is the starting point for a Windows port. The React UI, the local-model engine and Agent Mode's planning are shared; the native layer is not.
+Clickr AI is macOS-only today. This file is the maintainer's notes for a future Windows port. The React UI, the local-model engine and Agent Mode's planning are shared; the native layer is not.
 
 > **Rules:** work on a branch; put every Windows change behind `#[cfg(windows)]` (Rust) or a runtime platform check (TypeScript); do not edit `platform/macos.rs`, `platform/ax.rs` or the `#[cfg(target_os = "macos")]` blocks except to add a sibling Windows block; before merging, `cargo check` and `npm run build` must still pass on macOS.
 

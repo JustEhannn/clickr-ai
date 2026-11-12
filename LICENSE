@@ -1,21 +1,45 @@
-MIT License
+Clickr AI Source-Available License
 
-Copyright (c) 2026 Clickr AI contributors
+Copyright (c) 2026 JustEhannn. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This is not an open-source license. The source code is published so you can read it and so
+you can run the app for yourself. You do not get the right to reuse it.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. WHAT YOU MAY DO
+   a. Download and use the compiled Clickr AI app, free of charge, for your own personal,
+      non-commercial use.
+   b. Read and study the source code in this repository, for example to check what the app
+      does with your data.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. WHAT YOU MAY NOT DO, without the author's prior written permission
+   a. Copy, modify, adapt, translate or create derivative works of the source code or the app.
+   b. Redistribute, republish, host, sublicense, sell or rent the source code or the app, in
+      whole or in part, including modified or rebranded versions.
+   c. Use the source code, or any part of it, in another product or service, whether free or
+      paid, and whether or not it competes with Clickr AI.
+   d. Offer a paid, hosted or commercial version or service based on the source code or the app.
+   e. Use the Clickr AI name, logo or branding.
+   f. Use the source code or the app to train, fine-tune or evaluate machine-learning models.
+   g. Remove or alter this notice.
+
+3. THIRD-PARTY COMPONENTS
+   Clickr AI includes and downloads third-party software and models (for example Tauri, React,
+   llama.cpp and open AI models). Each keeps its own license, which applies to that component and
+   is not changed by this one.
+
+4. OWNERSHIP AND CHANGES
+   The author keeps all rights not expressly granted here. Versions of Clickr AI published before
+   this license was adopted remain available under the terms they were published with; this
+   license applies to everything published from the date it was adopted. The author may change
+   this license for future versions.
+
+5. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+   THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+   EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE
+   SOFTWARE OR ITS USE.
+
+6. TERMINATION
+   If you breach this license, your permissions under it end automatically.
+
+For permission requests, open an issue at https://github.com/JustEhannn/clickr-ai.

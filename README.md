@@ -5,7 +5,7 @@
 <h1 align="center">Clickr AI</h1>
 
 <p align="center">
-  <a href="https://github.com/JustEhannn/clickr-ai/blob/main/LICENSE"><img src="https://img.shields.io/github/license/JustEhannn/clickr-ai?style=flat" alt="License" /></a>
+  <a href="https://github.com/JustEhannn/clickr-ai/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-source--available-lightgrey?style=flat" alt="License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey?style=flat" alt="Platform" />
   <a href="https://github.com/JustEhannn/clickr-ai/releases/latest"><img src="https://img.shields.io/github/v/release/JustEhannn/clickr-ai?style=flat&sort=semver" alt="GitHub release" /></a>
   <a href="https://github.com/JustEhannn/clickr-ai/releases"><img src="https://img.shields.io/github/downloads/JustEhannn/clickr-ai/total?style=flat&color=blue" alt="Downloads" /></a>
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  The free and open-source AI copilot for your Mac.<br/>
+  The free AI copilot for your Mac, with the source available to read.<br/>
   Ask about anything on your screen, analyze files, and let Agent Mode do tasks for you. Runs on a local model, so nothing leaves your computer.
 </p>
 
@@ -47,7 +47,7 @@ Requires macOS 14 or later. The app isn't notarized yet, so macOS may say it's f
 - **App-aware and multi-monitor**: knows which app you're in and can capture any display
 - **Conversation history**: search, reopen and delete past chats, stored locally
 - **Private by design**: no accounts, no tracking, no data leaves your Mac
-- **Free forever**: every feature is included, MIT licensed
+- **Free**: every feature is included. The source is available to read, but it is not open source: see [License](#license)
 
 ## Models
 
@@ -79,7 +79,7 @@ npm run tauri build    # make the app and a .dmg
 
 Requires macOS 14+, [Node.js 20+](https://nodejs.org) and [Rust](https://rustup.rs).
 
-Maintainers: `scripts/bump-version.sh X.Y.Z`, then `PUBLISH=1 scripts/release.sh "notes"` builds a universal app and creates a GitHub release. It needs `gh` and the update-signing key at `~/clickr-keys/clickr-updater.key`; the public key in `src-tauri/tauri.conf.json` is the project's.
+Maintainer notes: `scripts/bump-version.sh X.Y.Z`, then `PUBLISH=1 scripts/release.sh "notes"` builds a universal app and creates a GitHub release. It needs `gh` and the update-signing key at `~/clickr-keys/clickr-updater.key`; the public key in `src-tauri/tauri.conf.json` is the project's.
 
 ## How it works
 
@@ -97,7 +97,7 @@ React 19, TypeScript, Vite, Tauri 2, Rust, llama.cpp, ScreenCaptureKit
 
 ## License
 
-[MIT](LICENSE): free for personal and commercial use.
+Clickr AI is **free to use** and its source is **published to read**, but it is **not open source**. You may use the app for yourself and study the code. You may not copy, modify, redistribute, sell, or build another product or a paid version from it. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
