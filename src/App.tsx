@@ -1471,9 +1471,9 @@ export default function App() {
           if (await invoke<boolean>("agent_tool_needs_screen", { name: call.name })) needsLook = true;
         }
 
-        for (const p of pendingCalls) {
-          history.push({ kind: "call", name: p.call.name, args: p.call.args, signature: p.signature });
-        }
+        pendingCalls.forEach((p, n) => {
+          history.push({ kind: "call", name: p.call.name, args: p.call.args, signature: p.signature, note: n === 0 ? step.note : undefined });
+        });
         for (const p of pendingCalls) {
           history.push({ kind: "result", name: p.call.name, result: p.result });
         }

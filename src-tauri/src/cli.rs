@@ -168,7 +168,7 @@ fn flatten(messages: &Value) -> Flat {
 /// Describes the tools in words and as a JSON schema the program must answer with.
 fn tool_instructions(tools: &Value) -> (String, Value) {
     let mut names = Vec::new();
-    let mut desc = String::from("\n\nYou act by choosing tools. Reply ONLY with a JSON object: `calls` is the list of tool calls to run now (at most 4, empty when the goal is done), `note` is one short sentence about what you see and do, and `final` is the short summary to give the user when no more tools are needed. Tools:\n");
+    let mut desc = String::from("\n\nYou act by choosing tools. Reply ONLY with a JSON object: `calls` is the list of tool calls to run now (at most 4, empty when the goal is done), `note` is one short sentence about what you see and do, and `final` is the short summary, used ONLY when the whole goal is finished or truly impossible. Never put a progress update or a request to continue in `final`: if there is more to do, return the next `calls`. The tools always work; if a result is an error or says skipped, look at the screen and try again. Tools:\n");
     for t in tools.as_array().into_iter().flatten() {
         let f = &t["function"];
         let name = f["name"].as_str().unwrap_or("");

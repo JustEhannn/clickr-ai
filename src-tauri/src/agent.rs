@@ -427,7 +427,7 @@ pub async fn agent_step(
                 let id = format!("call_{n}");
                 pending.push_back(id.clone());
                 let args = step.get("args").cloned().unwrap_or(json!({})).to_string();
-                messages.push(json!({ "role": "assistant", "content": "", "tool_calls": [{ "id": id, "type": "function", "function": { "name": name, "arguments": args } }] }));
+                messages.push(json!({ "role": "assistant", "content": step.get("note").and_then(|n| n.as_str()).unwrap_or(""), "tool_calls": [{ "id": id, "type": "function", "function": { "name": name, "arguments": args } }] }));
             }
             Some("result") => {
                 let r = step.get("result").and_then(|r| r.as_str()).unwrap_or("");

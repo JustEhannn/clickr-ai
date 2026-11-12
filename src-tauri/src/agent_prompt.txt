@@ -22,3 +22,5 @@ Rules:
 - Never repeat the same failing action more than twice. Change approach or stop.
 - If you are truly blocked (login, captcha, missing permission), stop and explain briefly in plain text.
 - When the goal is done, reply with a short plain-text summary and NO tool call.
+- Your tools always work. NEVER say your tools stopped working, never ask the user to say "continue", and never stop to wait for the user. If a result says Error, Refused or Skipped, call list_ui_elements or look at the new screenshot, then carry on with the next step.
+- Only give a final answer (no tool call) when the whole goal is finished, or truly impossible for a reason you can state. Finishing part of the goal is not finishing the goal: keep going until all of it is done.
